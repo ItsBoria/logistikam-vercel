@@ -3,6 +3,18 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
 
 const BOOTSTRAP_EMAIL = "davidpanasik@hotmail.com";
+const BUCKET = "product-images";
+const SIGN_TTL = 60 * 60 * 24 * 7;
+
+async function resolveImage(supabaseAdmin: any, url: string | null | undefined): Promise<string | null> {
+  if (!url) return null;
+  if (url.startsWith("storage:")) {
+    const path = url.slice("storage:".length);
+    const { data } = await supabaseAdmin.storage.from(BUCKET).createSignedUrl(path, SIGN_TTL);
+    return data?.signedUrl ?? null;
+  }
+  return url;
+}
 
 // ---- Bootstrap (callable without auth) ----
 export const bootstrapAdminStatus = createServerFn({ method: "GET" })
@@ -165,8 +177,19 @@ export const listProductsAdmin = createServerFn({ method: "GET" })
     await assertAdmin(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data } = await supabaseAdmin.from("products").select("*").order("name");
-    return data ?? [];
+    const resolved = await Promise.all((data ?? []).map(async (p) => ({
+      ...p,
+      image_url: await resolveImage(supabaseAdmin, p.image_url),
+      _raw_image_url: p.image_url, // for editing
+    })));
+    return resolved;
   });
+
+// image_url accepts: empty, http(s)://..., or "storage:<path>"
+const imageUrlSchema = z.string().max(2000).optional().nullable().refine(
+  (v) => !v || v.startsWith("http://") || v.startsWith("https://") || v.startsWith("storage:"),
+  "כתובת תמונה לא תקינה"
+);
 
 const productSchema = z.object({
   id: z.string().uuid().optional(),
@@ -175,7 +198,7 @@ const productSchema = z.object({
   price: z.number().min(0).max(10_000_000),
   stock: z.number().int().min(0).max(10_000_000),
   category: z.string().max(100).optional().nullable(),
-  image_url: z.string().url().max(2000).optional().nullable().or(z.literal("")),
+  image_url: imageUrlSchema,
   active: z.boolean(),
 });
 
@@ -194,6 +217,27 @@ export const upsertProduct = createServerFn({ method: "POST" })
       if (error) throw new Error(error.message);
     }
     return { ok: true };
+  });
+
+export const uploadProductImage = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({
+    filename: z.string().min(1).max(200),
+    content_type: z.string().min(1).max(100),
+    data_base64: z.string().min(1).max(15_000_000),
+  }).parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const ext = (data.filename.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const path = `${crypto.randomUUID()}.${ext}`;
+    const bytes = Buffer.from(data.data_base64, "base64");
+    const { error } = await supabaseAdmin.storage.from(BUCKET).upload(path, bytes, {
+      contentType: data.content_type, upsert: false,
+    });
+    if (error) throw new Error(error.message);
+    const { data: signed } = await supabaseAdmin.storage.from(BUCKET).createSignedUrl(path, SIGN_TTL);
+    return { storage_ref: `storage:${path}`, preview_url: signed?.signedUrl ?? null };
   });
 
 export const deleteProduct = createServerFn({ method: "POST" })
@@ -288,11 +332,90 @@ export const updateOrderStatus = createServerFn({ method: "POST" })
     const { error } = await supabaseAdmin.from("orders").update({ status: data.status }).eq("id", data.id);
     if (error) throw new Error(error.message);
 
-    // Send SMS when status becomes "ready"
-    if (data.status === "ready" && prev.contact_phone) {
-      const { sendSms } = await import("./sms.server");
+    // Notify when status becomes "ready"
+    if (data.status === "ready") {
       const teamName = (prev as any).teams?.name ?? "";
-      await sendSms(prev.contact_phone, `ההזמנה של ${teamName} מוכנה לאיסוף. סה"כ: ₪${prev.total}`);
+      const text = `ההזמנה של ${teamName} מוכנה לאיסוף. סה"כ: ₪${prev.total}`;
+      if (prev.contact_phone) {
+        const { sendSms } = await import("./sms.server");
+        await sendSms(prev.contact_phone, text).catch((e) => console.warn("[sms] failed:", e?.message));
+      }
+      const { sendPushToTeam } = await import("./push.server");
+      await sendPushToTeam(prev.team_id, {
+        title: "ההזמנה מוכנה לאיסוף 🎉",
+        body: text,
+        url: "/shop/orders",
+      }).catch((e) => console.warn("[push] failed:", e?.message));
     }
     return { ok: true };
+  });
+
+const orderItemEditSchema = z.object({
+  id: z.string().uuid().optional(),
+  product_id: z.string().uuid().nullable().optional(),
+  name: z.string().min(1).max(200),
+  price: z.number().min(0).max(10_000_000),
+  quantity: z.number().int().min(1).max(999),
+});
+
+export const updateOrderItems = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({
+    order_id: z.string().uuid(),
+    items: z.array(orderItemEditSchema).min(1).max(200),
+    notes: z.string().max(500).optional().nullable(),
+  }).parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const { data: prev } = await supabaseAdmin
+      .from("orders").select("*, order_items(*)").eq("id", data.order_id).single();
+    if (!prev) throw new Error("הזמנה לא נמצאה");
+
+    const wasStockDeducted = prev.status !== "awaiting_approval" && prev.status !== "cancelled";
+
+    // Restore stock for previous items if needed
+    if (wasStockDeducted) {
+      for (const it of prev.order_items as any[]) {
+        if (!it.product_id) continue;
+        const { data: prod } = await supabaseAdmin.from("products").select("stock").eq("id", it.product_id).maybeSingle();
+        if (prod) await supabaseAdmin.from("products").update({ stock: prod.stock + it.quantity }).eq("id", it.product_id);
+      }
+    }
+
+    // Delete all old items
+    await supabaseAdmin.from("order_items").delete().eq("order_id", data.order_id);
+
+    // Insert new items + recompute total
+    let total = 0;
+    const newItems = data.items.map(it => {
+      total += Number(it.price) * it.quantity;
+      return {
+        order_id: data.order_id,
+        product_id: it.product_id ?? null,
+        name: it.name,
+        price: it.price,
+        quantity: it.quantity,
+      };
+    });
+    const { error: insErr } = await supabaseAdmin.from("order_items").insert(newItems);
+    if (insErr) throw new Error(insErr.message);
+
+    // Re-deduct stock if needed
+    if (wasStockDeducted) {
+      for (const it of newItems) {
+        if (!it.product_id) continue;
+        const { data: prod } = await supabaseAdmin.from("products").select("stock").eq("id", it.product_id).maybeSingle();
+        if (prod) await supabaseAdmin.from("products").update({ stock: Math.max(0, prod.stock - it.quantity) }).eq("id", it.product_id);
+      }
+    }
+
+    const { error: updErr } = await supabaseAdmin.from("orders").update({
+      total,
+      notes: data.notes ?? prev.notes,
+    }).eq("id", data.order_id);
+    if (updErr) throw new Error(updErr.message);
+
+    return { ok: true, total };
   });
