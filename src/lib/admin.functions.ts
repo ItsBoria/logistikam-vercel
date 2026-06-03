@@ -3,6 +3,18 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
 
 const BOOTSTRAP_EMAIL = "davidpanasik@hotmail.com";
+const BUCKET = "product-images";
+const SIGN_TTL = 60 * 60 * 24 * 7;
+
+async function resolveImage(supabaseAdmin: any, url: string | null | undefined): Promise<string | null> {
+  if (!url) return null;
+  if (url.startsWith("storage:")) {
+    const path = url.slice("storage:".length);
+    const { data } = await supabaseAdmin.storage.from(BUCKET).createSignedUrl(path, SIGN_TTL);
+    return data?.signedUrl ?? null;
+  }
+  return url;
+}
 
 // ---- Bootstrap (callable without auth) ----
 export const bootstrapAdminStatus = createServerFn({ method: "GET" })
