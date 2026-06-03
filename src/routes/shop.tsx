@@ -3,14 +3,17 @@ import { useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
 import { getShopData, placeOrder } from "@/lib/team.functions";
+import { getVapidPublicKey, subscribePush, unsubscribePush } from "@/lib/push.functions";
 import { getTeamSession, setTeamSession } from "@/lib/team-session";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ShoppingCart, Plus, Minus, LogOut, AlertTriangle, Loader2, Trash2 } from "lucide-react";
+import { ShoppingCart, Plus, Minus, LogOut, AlertTriangle, Loader2, Trash2, Search, Bell, BellOff, ClipboardList } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/shop")({
@@ -21,6 +24,15 @@ export const Route = createFileRoute("/shop")({
 
 type CartMap = Record<string, number>;
 
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; ++i) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
 function Shop() {
   const navigate = useNavigate();
   const session = typeof window !== "undefined" ? getTeamSession() : null;
@@ -28,6 +40,10 @@ function Shop() {
 
   const fetchShop = useServerFn(getShopData);
   const orderFn = useServerFn(placeOrder);
+  const vapidFn = useServerFn(getVapidPublicKey);
+  const subscribeFn = useServerFn(subscribePush);
+  const unsubscribeFn = useServerFn(unsubscribePush);
+
   const { data, isLoading, refetch } = useQuery({
     enabled: !!session,
     queryKey: ["shop", session?.pin],
@@ -41,10 +57,46 @@ function Shop() {
   const [notes, setNotes] = useState("");
   const [placing, setPlacing] = useState(false);
 
+  // search/filter
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("all");
+  const [inStockOnly, setInStockOnly] = useState(false);
+
+  // push
+  const [pushOn, setPushOn] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const pushSupported = typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window;
+
   useEffect(() => { if (session?.contact_phone) setPhone(session.contact_phone); }, [session?.contact_phone]);
 
+  useEffect(() => {
+    if (!pushSupported) return;
+    navigator.serviceWorker.getRegistration("/sw.js").then(async (reg) => {
+      if (!reg) return;
+      const sub = await reg.pushManager.getSubscription();
+      setPushOn(!!sub);
+    });
+  }, [pushSupported]);
+
   const products = data?.products ?? [];
-  const total = useMemo(() => products.reduce((s, p: any) => s + Number(p.price) * (cart[p.id] || 0), 0), [products, cart]);
+
+  const categories = useMemo(() => {
+    const s = new Set<string>();
+    products.forEach((p: any) => p.category && s.add(p.category));
+    return Array.from(s).sort();
+  }, [products]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return products.filter((p: any) => {
+      if (category !== "all" && p.category !== category) return false;
+      if (inStockOnly && p.stock <= 0) return false;
+      if (q && !(`${p.name} ${p.description ?? ""}`.toLowerCase().includes(q))) return false;
+      return true;
+    });
+  }, [products, search, category, inStockOnly]);
+
+  const total = useMemo(() => products.reduce((s: number, p: any) => s + Number(p.price) * (cart[p.id] || 0), 0), [products, cart]);
   const itemCount = useMemo(() => Object.values(cart).reduce((a, b) => a + b, 0), [cart]);
 
   const limit = Number(data?.team.monthly_limit ?? 0);
@@ -73,6 +125,53 @@ function Shop() {
     } finally { setPlacing(false); }
   }
 
+  async function enablePush() {
+    if (!pushSupported) { toast.error("הדפדפן לא תומך בהתראות Push"); return; }
+    setPushBusy(true);
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") { toast.error("ההרשאה נדחתה"); return; }
+      const { key } = await vapidFn();
+      if (!key) { toast.error("התראות אינן מוגדרות במערכת"); return; }
+      const reg = await navigator.serviceWorker.register("/sw.js");
+      await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(key),
+        });
+      }
+      const json: any = sub.toJSON();
+      await subscribeFn({ data: {
+        pin: session!.pin,
+        endpoint: sub.endpoint,
+        p256dh: json.keys.p256dh,
+        auth: json.keys.auth,
+      } });
+      setPushOn(true);
+      toast.success("התראות הופעלו");
+    } catch (e: any) {
+      toast.error(e.message || "שגיאה בהפעלת התראות");
+    } finally { setPushBusy(false); }
+  }
+
+  async function disablePush() {
+    setPushBusy(true);
+    try {
+      const reg = await navigator.serviceWorker.getRegistration("/sw.js");
+      const sub = await reg?.pushManager.getSubscription();
+      if (sub) {
+        await unsubscribeFn({ data: { endpoint: sub.endpoint } });
+        await sub.unsubscribe();
+      }
+      setPushOn(false);
+      toast.success("התראות כובו");
+    } catch (e: any) {
+      toast.error(e.message || "שגיאה");
+    } finally { setPushBusy(false); }
+  }
+
   function logout() { setTeamSession(null); navigate({ to: "/" }); }
 
   if (!session) return null;
@@ -81,14 +180,22 @@ function Shop() {
   return (
     <div className="min-h-screen bg-secondary/30">
       <header className="bg-card border-b sticky top-0 z-30 backdrop-blur">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
           <div>
             <h1 className="font-bold text-lg">{data?.team.name}</h1>
             <p className="text-xs text-muted-foreground">
               {limit > 0 ? <>נוצל: ₪{spent.toFixed(0)} / ₪{limit.toFixed(0)} · נותר ₪{Math.max(0, remaining).toFixed(0)}</> : "ללא מגבלת חודש"}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button asChild variant="outline" size="sm">
+              <Link to="/shop/orders"><ClipboardList className="w-4 h-4 ml-2" /> ההזמנות שלי</Link>
+            </Button>
+            {pushSupported && (
+              pushOn
+                ? <Button variant="outline" size="sm" onClick={disablePush} disabled={pushBusy}><BellOff className="w-4 h-4 ml-2" /> כבה התראות</Button>
+                : <Button variant="outline" size="sm" onClick={enablePush} disabled={pushBusy}><Bell className="w-4 h-4 ml-2" /> הפעל התראות</Button>
+            )}
             <Button variant="outline" size="sm" onClick={() => setCheckout(true)} disabled={itemCount === 0}>
               <ShoppingCart className="w-4 h-4 ml-2" /> סל ({itemCount})
             </Button>
@@ -102,12 +209,32 @@ function Shop() {
         )}
       </header>
 
-      <main className="max-w-6xl mx-auto p-4">
-        {products.length === 0 ? (
-          <Card className="p-12 text-center text-muted-foreground">אין מוצרים זמינים כעת</Card>
+      <main className="max-w-6xl mx-auto p-4 space-y-4">
+        <Card className="p-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input className="pr-10" placeholder="חיפוש מוצר..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>
+          {categories.length > 0 && (
+            <Select value={category} onValueChange={setCategory}>
+              <SelectTrigger className="sm:w-48"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">כל הקטגוריות</SelectItem>
+                {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          )}
+          <label className="flex items-center gap-2 text-sm whitespace-nowrap">
+            <Switch checked={inStockOnly} onCheckedChange={setInStockOnly} />
+            במלאי בלבד
+          </label>
+        </Card>
+
+        {filtered.length === 0 ? (
+          <Card className="p-12 text-center text-muted-foreground">לא נמצאו מוצרים</Card>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {products.map((p: any) => {
+            {filtered.map((p: any) => {
               const qty = cart[p.id] || 0;
               return (
                 <Card key={p.id} className="overflow-hidden flex flex-col">
@@ -174,7 +301,7 @@ function Shop() {
           </div>
           <div className="space-y-3 pt-2">
             <Input placeholder="שם המזמין" value={name} onChange={(e) => setName(e.target.value)} />
-            <Input placeholder="טלפון לאיסוף (יישלח SMS)" value={phone} onChange={(e) => setPhone(e.target.value)} dir="ltr" />
+            <Input placeholder="טלפון לאיסוף" value={phone} onChange={(e) => setPhone(e.target.value)} dir="ltr" />
             <Textarea placeholder="הערות (אופציונלי)" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
           <DialogFooter>
