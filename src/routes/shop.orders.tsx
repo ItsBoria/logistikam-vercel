@@ -198,6 +198,11 @@ function OrdersPage() {
                         ))}
                       </div>
                       {order.notes ? <div className="rounded-md bg-muted p-3 text-sm">הערות: {order.notes}</div> : null}
+                      <div className="flex justify-end">
+                        <Button variant="outline" size="sm" onClick={() => handleReorder(order.id)}>
+                          <RotateCcw className="ml-2 h-4 w-4" /> הזמן שוב
+                        </Button>
+                      </div>
                     </div>
                   </AccordionContent>
                 </AccordionItem>
