@@ -35,7 +35,7 @@ function AdminLogin() {
     e.preventDefault();
     setLoading(true);
     try {
-      const { email } = await resolveFn({ data: { username } });
+      const { email } = await resolveFn({ data: { identifier: username } });
       if (!email) throw new Error("שם משתמש או סיסמה שגויים");
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw new Error("שם משתמש או סיסמה שגויים");
