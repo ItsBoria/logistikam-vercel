@@ -20,14 +20,16 @@ export const Route = createFileRoute("/shop/replacements")({
 });
 
 const STATUS_LABEL: Record<string, string> = {
-  awaiting_approval: "ממתינה לאישור",
-  approved: "אושרה",
-  rejected: "נדחתה",
+  preparing: "בהכנה",
+  ready: "מוכן לאיסוף",
+  done: "נאסף",
+  cancelled: "בוטל",
 };
 const STATUS_COLOR: Record<string, string> = {
-  awaiting_approval: "bg-warning text-warning-foreground",
-  approved: "bg-success text-success-foreground",
-  rejected: "bg-destructive/15 text-destructive",
+  preparing: "bg-warning text-warning-foreground",
+  ready: "bg-primary text-primary-foreground",
+  done: "bg-success text-success-foreground",
+  cancelled: "bg-destructive/15 text-destructive",
 };
 
 function ReplacementsPage() {
