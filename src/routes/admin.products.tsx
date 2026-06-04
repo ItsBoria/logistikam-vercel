@@ -177,7 +177,13 @@ function Products() {
                 <div><label className="text-sm">מחיר (₪)</label><Input type="number" value={editing.price} onChange={(e) => setEditing({ ...editing, price: e.target.value })} /></div>
                 <div><label className="text-sm">מלאי</label><Input type="number" value={editing.stock} onChange={(e) => setEditing({ ...editing, stock: e.target.value })} /></div>
               </div>
-              <div><label className="text-sm">קטגוריה</label><Input value={editing.category ?? ""} onChange={(e) => setEditing({ ...editing, category: e.target.value })} /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="text-sm">קטגוריה</label><Input value={editing.category ?? ""} onChange={(e) => setEditing({ ...editing, category: e.target.value })} /></div>
+                <div>
+                  <label className="text-sm">סף מלאי נמוך</label>
+                  <Input type="number" min={0} placeholder="ברירת מחדל מהמערכת" value={editing.low_stock_threshold ?? ""} onChange={(e) => setEditing({ ...editing, low_stock_threshold: e.target.value })} />
+                </div>
+              </div>
               <div className="space-y-2">
                 <label className="text-sm">תמונה</label>
                 {editing.image_preview && (
