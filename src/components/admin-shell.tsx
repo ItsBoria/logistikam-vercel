@@ -74,7 +74,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
         </div>
         <nav className="md:hidden flex items-center gap-1 px-2 pb-2 overflow-x-auto">
           {nav.map(n => {
-            const active = path.startsWith(n.to);
+            const active = (n as any).exact ? path === n.to : path.startsWith(n.to) && n.to !== "/admin";
             return (
               <Link key={n.to} to={n.to} className={`px-3 py-1.5 rounded-md text-xs whitespace-nowrap ${active ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>
                 {n.label}
