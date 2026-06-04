@@ -1,7 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
-import { addVat } from "@/lib/pricing";
 
 const BOOTSTRAP_EMAIL = "davidpanasik@hotmail.com";
 const BUCKET = "product-images";

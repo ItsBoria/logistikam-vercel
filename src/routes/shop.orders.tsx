@@ -1,4 +1,4 @@
-import { createFileRoute, Link, redirect } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect, useRouter } from "@tanstack/react-router";
 import { useSuspenseQuery, queryOptions } from "@tanstack/react-query";
 import { ArrowRight, ClipboardList, Loader2, Phone, User } from "lucide-react";
 import { getTeamOrders } from "@/lib/team.functions";
@@ -57,8 +57,40 @@ export const Route = createFileRoute("/shop/orders")({
     </div>
   ),
   head: () => ({ meta: [{ title: "ההזמנות שלי" }] }),
+  notFoundComponent: OrdersNotFound,
+  errorComponent: OrdersError,
   component: OrdersPage,
 });
+
+function OrdersNotFound() {
+  return (
+    <div className="flex min-h-screen items-center justify-center px-4">
+      <Card className="w-full max-w-md p-8 text-center">
+        <p className="text-sm text-muted-foreground">לא הצלחנו לפתוח את היסטוריית ההזמנות.</p>
+        <div className="mt-4 flex justify-center gap-2">
+          <Button asChild variant="outline"><Link to="/shop">חזרה לחנות</Link></Button>
+          <Button asChild><Link to="/shop/orders">נסה שוב</Link></Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function OrdersError({ error, reset }: { error: Error; reset: () => void }) {
+  const router = useRouter();
+  return (
+    <div className="flex min-h-screen items-center justify-center px-4">
+      <Card className="w-full max-w-md p-8 text-center">
+        <p className="font-semibold">יש בעיה בטעינת ההזמנות</p>
+        <p className="mt-2 text-sm text-muted-foreground">{error.message}</p>
+        <div className="mt-4 flex justify-center gap-2">
+          <Button variant="outline" onClick={() => { router.invalidate(); reset(); }}>נסה שוב</Button>
+          <Button asChild><Link to="/shop">חזרה לחנות</Link></Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
 
 function OrdersPage() {
   const { pin } = Route.useLoaderData();
