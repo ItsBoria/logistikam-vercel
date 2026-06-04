@@ -2,13 +2,14 @@ import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-r
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowRight, ClipboardList, Loader2, Phone, User } from "lucide-react";
-import { getTeamOrders } from "@/lib/team.functions";
+import { ArrowRight, ClipboardList, Loader2, Phone, User, RotateCcw } from "lucide-react";
+import { getTeamOrders, repeatOrder } from "@/lib/team.functions";
 import { getTeamSession } from "@/lib/team-session";
 import { formatCurrency, VAT_LABEL } from "@/lib/pricing";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { toast } from "sonner";
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "ממתינה",
@@ -72,6 +73,7 @@ function OrdersPage() {
   const navigate = useNavigate();
   const session = typeof window !== "undefined" ? getTeamSession() : null;
   const fetchOrders = useServerFn(getTeamOrders);
+  const reorderFn = useServerFn(repeatOrder);
 
   useEffect(() => {
     if (!session?.pin) {
@@ -85,6 +87,27 @@ function OrdersPage() {
     queryFn: () => fetchOrders({ data: { pin: session!.pin } }),
     staleTime: 30_000,
   });
+
+  async function handleReorder(orderId: string) {
+    if (!session?.pin) return;
+    try {
+      const res = await reorderFn({ data: { pin: session.pin, order_id: orderId } });
+      if (!res.items.length) {
+        toast.error("אף אחד מהפריטים אינו זמין כעת");
+        return;
+      }
+      sessionStorage.setItem(`prefill-cart:${session.pin}`, JSON.stringify(res.items));
+      if (res.skipped.length) {
+        toast.warning(`חלק מהפריטים לא נוספו: ${res.skipped.join(", ")}`);
+      } else {
+        toast.success("הפריטים הועברו לסל");
+      }
+      navigate({ to: "/shop" });
+    } catch (e: any) {
+      toast.error(e.message || "שגיאה");
+    }
+  }
+
 
   if (!session?.pin || isLoading) {
     return (
@@ -175,6 +198,11 @@ function OrdersPage() {
                         ))}
                       </div>
                       {order.notes ? <div className="rounded-md bg-muted p-3 text-sm">הערות: {order.notes}</div> : null}
+                      <div className="flex justify-end">
+                        <Button variant="outline" size="sm" onClick={() => handleReorder(order.id)}>
+                          <RotateCcw className="ml-2 h-4 w-4" /> הזמן שוב
+                        </Button>
+                      </div>
                     </div>
                   </AccordionContent>
                 </AccordionItem>

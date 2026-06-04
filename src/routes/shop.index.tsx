@@ -48,10 +48,34 @@ function Shop() {
   const [notes, setNotes] = useState("");
   const [placing, setPlacing] = useState(false);
 
+  // Prefill contact info from previous orders (per-team) and any reorder cart
+  useEffect(() => {
+    if (!session) return;
+    try {
+      const k = `team-contact:${session.pin}`;
+      const raw = localStorage.getItem(k);
+      if (raw) {
+        const v = JSON.parse(raw);
+        if (v.name) setName(v.name);
+        if (v.phone) setPhone(v.phone);
+      }
+      const prefillKey = `prefill-cart:${session.pin}`;
+      const prefill = sessionStorage.getItem(prefillKey);
+      if (prefill) {
+        sessionStorage.removeItem(prefillKey);
+        const items: Array<{ product_id: string; quantity: number }> = JSON.parse(prefill);
+        const next: CartMap = {};
+        for (const it of items) next[it.product_id] = it.quantity;
+        setCart(next);
+      }
+    } catch {}
+  }, [session?.pin]);
+
   // search/filter
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
   const [inStockOnly, setInStockOnly] = useState(false);
+
 
 
   const products = data?.products ?? [];
@@ -91,6 +115,9 @@ function Shop() {
     try {
       const items = Object.entries(cart).map(([product_id, quantity]) => ({ product_id, quantity }));
       const res = await orderFn({ data: { pin: session!.pin, items, notes, contact_phone: phone, ordered_by_name: name } });
+      try {
+        localStorage.setItem(`team-contact:${session!.pin}`, JSON.stringify({ name, phone }));
+      } catch {}
       toast.success(res.requires_approval
         ? "ההזמנה נשלחה ומחכה לאישור מנהל (חריגה ממסגרת)"
         : "ההזמנה נשלחה בהצלחה!");
@@ -100,6 +127,7 @@ function Shop() {
       toast.error(e.message || "שגיאה בשליחת הזמנה");
     } finally { setPlacing(false); }
   }
+
 
 
   function logout() { setTeamSession(null); navigate({ to: "/" }); }
@@ -128,12 +156,17 @@ function Shop() {
             <Button variant="ghost" size="sm" onClick={logout}><LogOut className="w-4 h-4" /></Button>
           </div>
         </div>
-        {willExceed && (
+        {willExceed ? (
           <div className="bg-warning/15 text-warning-foreground text-sm px-4 py-2 flex items-center gap-2 justify-center">
             <AlertTriangle className="w-4 h-4" /> ההזמנה הנוכחית חורגת מהמסגרת החודשית ותדרוש אישור מנהל
           </div>
-        )}
+        ) : limit > 0 && remaining / limit < 0.2 ? (
+          <div className="bg-warning/20 text-warning-foreground text-sm px-4 py-2 flex items-center gap-2 justify-center">
+            <AlertTriangle className="w-4 h-4" /> נותרו רק {formatCurrency(Math.max(0, remaining))} מהתקציב החודשי
+          </div>
+        ) : null}
       </header>
+
 
       <main className="max-w-6xl mx-auto p-4 space-y-4">
         <Card className="p-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
@@ -182,14 +215,14 @@ function Shop() {
                     </div>
                     <div className="mt-3">
                       {qty === 0 ? (
-                        <Button className="w-full" size="sm" disabled={p.stock === 0} onClick={() => setQty(p.id, 1, p.stock)}>
+                        <Button className="w-full h-11" disabled={p.stock === 0} onClick={() => setQty(p.id, 1, p.stock)}>
                           {p.stock === 0 ? "אזל" : "הוסף"}
                         </Button>
                       ) : (
                         <div className="flex items-center justify-between gap-2">
-                          <Button variant="outline" size="icon" onClick={() => setQty(p.id, qty - 1, p.stock)}><Minus className="w-4 h-4" /></Button>
-                          <span className="font-semibold">{qty}</span>
-                          <Button variant="outline" size="icon" onClick={() => setQty(p.id, qty + 1, p.stock)} disabled={qty >= p.stock}><Plus className="w-4 h-4" /></Button>
+                          <Button variant="outline" size="icon" className="h-11 w-11" onClick={() => setQty(p.id, qty - 1, p.stock)}><Minus className="w-5 h-5" /></Button>
+                          <span className="font-bold text-lg tabular-nums">{qty}</span>
+                          <Button variant="outline" size="icon" className="h-11 w-11" onClick={() => setQty(p.id, qty + 1, p.stock)} disabled={qty >= p.stock}><Plus className="w-5 h-5" /></Button>
                         </div>
                       )}
                     </div>
@@ -199,7 +232,22 @@ function Shop() {
             })}
           </div>
         )}
+        <div className="h-20 sm:hidden" aria-hidden />
       </main>
+
+      {/* Sticky checkout bar (mobile) */}
+      {itemCount > 0 && (
+        <div className="sm:hidden fixed bottom-0 inset-x-0 z-40 bg-card border-t shadow-lg p-3 flex items-center gap-3">
+          <div className="flex-1">
+            <div className="text-xs text-muted-foreground">סל: {itemCount} פריטים</div>
+            <div className="font-bold text-lg">{formatCurrency(total)}</div>
+          </div>
+          <Button className="h-12 px-6 text-base" onClick={() => setCheckout(true)}>
+            <ShoppingCart className="w-5 h-5 ml-2" /> מעבר לתשלום
+          </Button>
+        </div>
+      )}
+
 
       <Dialog open={checkout} onOpenChange={setCheckout}>
         <DialogContent className="max-w-lg">

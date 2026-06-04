@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { bootstrapAdmin, bootstrapAdminStatus } from "@/lib/admin.functions";
+import { adminAuthStatus, resolveAdminEmail, bootstrapAdminUsername } from "@/lib/admin-auth.functions";
 import { useSupabaseSession } from "@/hooks/use-supabase-session";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,33 +20,35 @@ export const Route = createFileRoute("/admin/login")({
 function AdminLogin() {
   const navigate = useNavigate();
   const { session } = useSupabaseSession();
-  useEffect(() => { if (session) navigate({ to: "/admin/orders", replace: true }); }, [session, navigate]);
+  useEffect(() => { if (session) navigate({ to: "/admin", replace: true }); }, [session, navigate]);
 
-  const statusFn = useServerFn(bootstrapAdminStatus);
-  const bootstrapFn = useServerFn(bootstrapAdmin);
-  const { data: status } = useQuery({ queryKey: ["bootstrap-status"], queryFn: () => statusFn() });
+  const statusFn = useServerFn(adminAuthStatus);
+  const resolveFn = useServerFn(resolveAdminEmail);
+  const bootstrapFn = useServerFn(bootstrapAdminUsername);
+  const { data: status } = useQuery({ queryKey: ["admin-auth-status"], queryFn: () => statusFn() });
 
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => { if (status?.email) setEmail(status.email); }, [status?.email]);
 
   async function onSignIn(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     try {
+      const { email } = await resolveFn({ data: { username } });
+      if (!email) throw new Error("שם משתמש או סיסמה שגויים");
       const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
+      if (error) throw new Error("שם משתמש או סיסמה שגויים");
       toast.success("ברוך/ה הבא/ה");
     } catch (e: any) { toast.error(e.message || "שגיאה"); }
     finally { setLoading(false); }
   }
+
   async function onBootstrap(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     try {
-      await bootstrapFn({ data: { email, password } });
+      const { email } = await bootstrapFn({ data: { username, password } });
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
       toast.success("מנהל ראשי נוצר");
@@ -71,12 +73,28 @@ function AdminLogin() {
         <Card className="p-8 shadow-xl">
           <form onSubmit={needsBootstrap ? onBootstrap : onSignIn} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium mb-2">אימייל</label>
-              <Input value={email} onChange={(e) => setEmail(e.target.value)} type="email" dir="ltr" required disabled={needsBootstrap} />
+              <label className="block text-sm font-medium mb-2">שם משתמש</label>
+              <Input
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                type="text"
+                dir="ltr"
+                autoComplete="username"
+                required
+                placeholder="admin"
+              />
             </div>
             <div>
               <label className="block text-sm font-medium mb-2">סיסמה</label>
-              <Input value={password} onChange={(e) => setPassword(e.target.value)} type="password" dir="ltr" required minLength={8} />
+              <Input
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                type="password"
+                dir="ltr"
+                autoComplete={needsBootstrap ? "new-password" : "current-password"}
+                required
+                minLength={8}
+              />
               {needsBootstrap && <p className="text-xs text-muted-foreground mt-1">בחר/י סיסמה חזקה (לפחות 8 תווים)</p>}
             </div>
             <Button type="submit" disabled={loading} className="w-full h-11">
