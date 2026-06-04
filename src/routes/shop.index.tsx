@@ -3,7 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
 import { getShopData, placeOrder } from "@/lib/team.functions";
-import { getVapidPublicKey, subscribePush, unsubscribePush } from "@/lib/push.functions";
+import { PushToggle } from "@/components/push-toggle";
+
 import { getTeamSession, setTeamSession } from "@/lib/team-session";
 import { VAT_LABEL, formatCurrency } from "@/lib/pricing";
 import { Button } from "@/components/ui/button";
