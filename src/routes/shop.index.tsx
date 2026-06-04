@@ -255,9 +255,11 @@ function Shop() {
                   <div className="p-3 flex-1 flex flex-col">
                     <h3 className="font-semibold leading-tight">{p.name}</h3>
                     {p.description && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{p.description}</p>}
-                    <div className="mt-2 flex items-center justify-between">
-                      <span className="font-bold text-lg">₪{Number(p.price).toFixed(0)}</span>
-                      <span className="text-[11px] text-muted-foreground">{VAT_LABEL}</span>
+                    <div className="mt-2 flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-bold text-lg">{formatCurrency(Number(p.price))}</div>
+                        <div className="text-[11px] text-muted-foreground">{VAT_LABEL}</div>
+                      </div>
                       <span className="text-xs text-muted-foreground">מלאי: {p.stock}</span>
                     </div>
                     <div className="mt-3">
