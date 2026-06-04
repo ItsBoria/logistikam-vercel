@@ -35,9 +35,9 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const ShopOrdersRoute = ShopOrdersRouteImport.update({
-  id: '/orders',
-  path: '/orders',
-  getParentRoute: () => ShopRoute,
+  id: '/shop/orders',
+  path: '/shop/orders',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AdminUsersRoute = AdminUsersRouteImport.update({
   id: '/admin/users',
@@ -142,6 +142,7 @@ export interface RootRouteChildren {
   AdminProductsRoute: typeof AdminProductsRoute
   AdminTeamsRoute: typeof AdminTeamsRoute
   AdminUsersRoute: typeof AdminUsersRoute
+  ShopOrdersRoute: typeof ShopOrdersRoute
   AdminIndexRoute: typeof AdminIndexRoute
   ShopIndexRoute: typeof ShopIndexRoute
 }
@@ -171,10 +172,10 @@ declare module '@tanstack/react-router' {
     }
     '/shop/orders': {
       id: '/shop/orders'
-      path: '/orders'
+      path: '/shop/orders'
       fullPath: '/shop/orders'
       preLoaderRoute: typeof ShopOrdersRouteImport
-      parentRoute: typeof ShopRoute
+      parentRoute: typeof rootRouteImport
     }
     '/admin/users': {
       id: '/admin/users'
@@ -221,19 +222,10 @@ const rootRouteChildren: RootRouteChildren = {
   AdminProductsRoute: AdminProductsRoute,
   AdminTeamsRoute: AdminTeamsRoute,
   AdminUsersRoute: AdminUsersRoute,
+  ShopOrdersRoute: ShopOrdersRoute,
   AdminIndexRoute: AdminIndexRoute,
   ShopIndexRoute: ShopIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
