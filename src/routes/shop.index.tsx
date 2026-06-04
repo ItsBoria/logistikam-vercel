@@ -66,6 +66,9 @@ function Shop() {
   const [pushOn, setPushOn] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const pushSupported = typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window;
+  const isIOS = typeof navigator !== "undefined" && /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const isStandalone = typeof window !== "undefined" && ((window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || (navigator as any).standalone === true);
+  const iosNeedsInstall = isIOS && !isStandalone && !pushSupported;
 
   useEffect(() => { if (session?.contact_phone) setPhone(session.contact_phone); }, [session?.contact_phone]);
 
