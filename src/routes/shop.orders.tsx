@@ -73,6 +73,7 @@ function OrdersPage() {
   const navigate = useNavigate();
   const session = typeof window !== "undefined" ? getTeamSession() : null;
   const fetchOrders = useServerFn(getTeamOrders);
+  const reorderFn = useServerFn(repeatOrder);
 
   useEffect(() => {
     if (!session?.pin) {
@@ -86,6 +87,27 @@ function OrdersPage() {
     queryFn: () => fetchOrders({ data: { pin: session!.pin } }),
     staleTime: 30_000,
   });
+
+  async function handleReorder(orderId: string) {
+    if (!session?.pin) return;
+    try {
+      const res = await reorderFn({ data: { pin: session.pin, order_id: orderId } });
+      if (!res.items.length) {
+        toast.error("אף אחד מהפריטים אינו זמין כעת");
+        return;
+      }
+      sessionStorage.setItem(`prefill-cart:${session.pin}`, JSON.stringify(res.items));
+      if (res.skipped.length) {
+        toast.warning(`חלק מהפריטים לא נוספו: ${res.skipped.join(", ")}`);
+      } else {
+        toast.success("הפריטים הועברו לסל");
+      }
+      navigate({ to: "/shop" });
+    } catch (e: any) {
+      toast.error(e.message || "שגיאה");
+    }
+  }
+
 
   if (!session?.pin || isLoading) {
     return (
