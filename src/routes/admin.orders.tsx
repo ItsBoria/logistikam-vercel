@@ -3,7 +3,7 @@ import { useState, useMemo } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AdminShell } from "@/components/admin-shell";
-import { listOrders, updateOrderStatus, listTeams, updateOrderItems } from "@/lib/admin.functions";
+import { listOrders, updateOrderStatus, listTeams, updateOrderItems, deleteOrder, deleteOldOrders } from "@/lib/admin.functions";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
