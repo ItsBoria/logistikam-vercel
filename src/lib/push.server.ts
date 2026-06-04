@@ -1,28 +1,58 @@
 import webpush from "web-push";
 
 let configured = false;
-function ensureConfigured() {
-  if (configured) return true;
-  const pub = process.env.VAPID_PUBLIC_KEY;
-  const priv = process.env.VAPID_PRIVATE_KEY;
-  const subject = process.env.VAPID_SUBJECT || "mailto:davidpanasik@hotmail.com";
-  if (!pub || !priv) return false;
-  webpush.setVapidDetails(subject, pub, priv);
-  configured = true;
-  return true;
+let configError: string | null = null;
+
+function isValidSubject(s: string): boolean {
+  if (!s) return false;
+  if (s.startsWith("mailto:")) {
+    return /^mailto:[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+  }
+  if (s.startsWith("https://")) {
+    try { new URL(s); return true; } catch { return false; }
+  }
+  return false;
+}
+
+function ensureConfigured(): { ok: boolean; error?: string } {
+  if (configured) return { ok: true };
+  if (configError) return { ok: false, error: configError };
+  const pub = (process.env.VAPID_PUBLIC_KEY || "").trim();
+  const priv = (process.env.VAPID_PRIVATE_KEY || "").trim();
+  let subject = (process.env.VAPID_SUBJECT || "").trim();
+
+  if (!pub || !priv) {
+    configError = "VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY לא הוגדרו בשרת";
+    return { ok: false, error: configError };
+  }
+  if (!isValidSubject(subject)) {
+    // Fallback to a safe default so push isn't blocked by a bad secret value.
+    console.warn(`[push] VAPID_SUBJECT invalid (${JSON.stringify(subject)}), falling back to mailto:admin@logistikam.lovable.app`);
+    subject = "mailto:admin@logistikam.lovable.app";
+  }
+  try {
+    webpush.setVapidDetails(subject, pub, priv);
+    configured = true;
+    return { ok: true };
+  } catch (e: any) {
+    configError = `הגדרת VAPID נכשלה: ${e?.message || e}`;
+    return { ok: false, error: configError };
+  }
 }
 
 export async function sendPushToTeam(teamId: string, payload: { title: string; body: string; url?: string }) {
-  if (!ensureConfigured()) {
-    console.warn("[push] VAPID keys missing; skipping send");
-    return { sent: 0, removed: 0 };
+  const cfg = ensureConfigured();
+  if (!cfg.ok) {
+    console.warn("[push] not configured:", cfg.error);
+    return { sent: 0, removed: 0, failed: 0, error: cfg.error };
   }
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data: subs } = await supabaseAdmin
     .from("push_subscriptions").select("*").eq("team_id", teamId);
-  if (!subs?.length) return { sent: 0, removed: 0 };
+  if (!subs?.length) return { sent: 0, removed: 0, failed: 0, error: "אין מכשירים רשומים לצוות זה" };
 
-  let sent = 0, removed = 0;
+  let sent = 0, removed = 0, failed = 0;
+  let lastErr: string | null = null;
   const body = JSON.stringify(payload);
   await Promise.all(subs.map(async (s: any) => {
     try {
@@ -36,9 +66,11 @@ export async function sendPushToTeam(teamId: string, payload: { title: string; b
         await supabaseAdmin.from("push_subscriptions").delete().eq("id", s.id);
         removed++;
       } else {
-        console.error("[push] send failed:", err?.statusCode, err?.message);
+        failed++;
+        lastErr = `${err?.statusCode ?? ""} ${err?.body || err?.message || err}`.trim();
+        console.error("[push] send failed:", err?.statusCode, err?.message, err?.body);
       }
     }
   }));
-  return { sent, removed };
+  return { sent, removed, failed, error: failed > 0 ? lastErr : undefined };
 }
