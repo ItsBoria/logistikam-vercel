@@ -57,8 +57,10 @@ function Admins() {
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center"><UserCog className="w-5 h-5" /></div>
               <div>
-                <div className="font-medium">{a.email}</div>
-                <div className="text-xs text-muted-foreground">נוסף: {new Date(a.created_at).toLocaleDateString("he-IL")}</div>
+                <div className="font-medium">{a.username ? `@${a.username}` : a.email}</div>
+                <div className="text-xs text-muted-foreground">
+                  {a.username ? `${a.email} · ` : ""}נוסף: {new Date(a.created_at).toLocaleDateString("he-IL")}
+                </div>
               </div>
             </div>
             {a.user_id !== session?.user.id ? (
