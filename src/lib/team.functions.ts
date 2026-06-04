@@ -50,7 +50,10 @@ export const getShopData = createServerFn({ method: "POST" })
     const resolved = await resolveProductImages(supabaseAdmin, products ?? []);
     return {
       team,
-      products: resolved,
+      products: resolved.map((product) => ({
+        ...product,
+        price: addVat(Number(product.price)),
+      })),
       spent: Number(spent ?? 0),
     };
   });
