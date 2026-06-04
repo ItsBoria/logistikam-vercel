@@ -46,12 +46,21 @@ function OrdersPage() {
   const updateFn = useServerFn(updateOrderStatus);
   const teamsFn = useServerFn(listTeams);
   const updateItemsFn = useServerFn(updateOrderItems);
+  const deleteOrderFn = useServerFn(deleteOrder);
+  const deleteOldFn = useServerFn(deleteOldOrders);
 
   const [teamId, setTeamId] = useState<string>("all");
   const [status, setStatus] = useState<string>("all");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [editing, setEditing] = useState<any>(null);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
+  const [cleanupBefore, setCleanupBefore] = useState(() => {
+    const d = new Date(); d.setMonth(d.getMonth() - 3);
+    return d.toISOString().slice(0, 10);
+  });
+  const [cleanupOnlyDone, setCleanupOnlyDone] = useState(true);
+  const [cleanupBusy, setCleanupBusy] = useState(false);
 
   const { data: teams } = useQuery({ queryKey: ["admin-teams"], queryFn: () => teamsFn() });
   const { data: orders, isLoading } = useQuery({
