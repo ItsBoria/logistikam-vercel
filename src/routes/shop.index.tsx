@@ -215,14 +215,14 @@ function Shop() {
                     </div>
                     <div className="mt-3">
                       {qty === 0 ? (
-                        <Button className="w-full" size="sm" disabled={p.stock === 0} onClick={() => setQty(p.id, 1, p.stock)}>
+                        <Button className="w-full h-11" disabled={p.stock === 0} onClick={() => setQty(p.id, 1, p.stock)}>
                           {p.stock === 0 ? "אזל" : "הוסף"}
                         </Button>
                       ) : (
                         <div className="flex items-center justify-between gap-2">
-                          <Button variant="outline" size="icon" onClick={() => setQty(p.id, qty - 1, p.stock)}><Minus className="w-4 h-4" /></Button>
-                          <span className="font-semibold">{qty}</span>
-                          <Button variant="outline" size="icon" onClick={() => setQty(p.id, qty + 1, p.stock)} disabled={qty >= p.stock}><Plus className="w-4 h-4" /></Button>
+                          <Button variant="outline" size="icon" className="h-11 w-11" onClick={() => setQty(p.id, qty - 1, p.stock)}><Minus className="w-5 h-5" /></Button>
+                          <span className="font-bold text-lg tabular-nums">{qty}</span>
+                          <Button variant="outline" size="icon" className="h-11 w-11" onClick={() => setQty(p.id, qty + 1, p.stock)} disabled={qty >= p.stock}><Plus className="w-5 h-5" /></Button>
                         </div>
                       )}
                     </div>
