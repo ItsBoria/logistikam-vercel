@@ -26,13 +26,15 @@ function Admins() {
   const deleteFn = useServerFn(deleteAdminUser);
   const { data: admins } = useQuery({ queryKey: ["admin-users"], queryFn: () => listFn() });
   const [creating, setCreating] = useState(false);
-  const [email, setEmail] = useState(""); const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
 
   async function create() {
     try {
-      await createFn({ data: { email, password } });
+      await createFn({ data: { email, username, password } });
       toast.success("נוסף מנהל");
-      setEmail(""); setPassword(""); setCreating(false);
+      setEmail(""); setUsername(""); setPassword(""); setCreating(false);
       qc.invalidateQueries({ queryKey: ["admin-users"] });
     } catch (e: any) { toast.error(e.message); }
   }
@@ -55,8 +57,10 @@ function Admins() {
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center"><UserCog className="w-5 h-5" /></div>
               <div>
-                <div className="font-medium">{a.email}</div>
-                <div className="text-xs text-muted-foreground">נוסף: {new Date(a.created_at).toLocaleDateString("he-IL")}</div>
+                <div className="font-medium">{a.username ? `@${a.username}` : a.email}</div>
+                <div className="text-xs text-muted-foreground">
+                  {a.username ? `${a.email} · ` : ""}נוסף: {new Date(a.created_at).toLocaleDateString("he-IL")}
+                </div>
               </div>
             </div>
             {a.user_id !== session?.user.id ? (
@@ -71,12 +75,17 @@ function Admins() {
         <DialogContent>
           <DialogHeader><DialogTitle>הוספת מנהל</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            <div><label className="text-sm">אימייל</label><Input value={email} onChange={(e) => setEmail(e.target.value)} type="email" dir="ltr" /></div>
+            <div><label className="text-sm">אימייל</label><Input value={email} onChange={(e) => setEmail(e.target.value)} type="email" dir="ltr" placeholder="name@example.com" /></div>
+            <div>
+              <label className="text-sm">שם משתמש</label>
+              <Input value={username} onChange={(e) => setUsername(e.target.value)} type="text" dir="ltr" placeholder="admin" />
+              <p className="text-xs text-muted-foreground mt-1">אותיות באנגלית, מספרים, נקודה, קו תחתון, מקף (2-40 תווים)</p>
+            </div>
             <div><label className="text-sm">סיסמה (לפחות 8 תווים)</label><Input value={password} onChange={(e) => setPassword(e.target.value)} type="password" dir="ltr" /></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreating(false)}>ביטול</Button>
-            <Button onClick={create} disabled={!email || password.length < 8}>הוסף</Button>
+            <Button onClick={create} disabled={!email || !/^[a-zA-Z0-9_.-]{2,40}$/.test(username) || password.length < 8}>הוסף</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -35,7 +35,7 @@ function AdminLogin() {
     e.preventDefault();
     setLoading(true);
     try {
-      const { email } = await resolveFn({ data: { username } });
+      const { email } = await resolveFn({ data: { identifier: username } });
       if (!email) throw new Error("שם משתמש או סיסמה שגויים");
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw new Error("שם משתמש או סיסמה שגויים");
@@ -73,7 +73,7 @@ function AdminLogin() {
         <Card className="p-8 shadow-xl">
           <form onSubmit={needsBootstrap ? onBootstrap : onSignIn} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium mb-2">שם משתמש</label>
+              <label className="block text-sm font-medium mb-2">{needsBootstrap ? "שם משתמש" : "שם משתמש או אימייל"}</label>
               <Input
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -81,7 +81,7 @@ function AdminLogin() {
                 dir="ltr"
                 autoComplete="username"
                 required
-                placeholder="admin"
+                placeholder={needsBootstrap ? "admin" : "admin או name@example.com"}
               />
             </div>
             <div>

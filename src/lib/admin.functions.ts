@@ -76,7 +76,12 @@ export const listAdminUsers = createServerFn({ method: "GET" })
     const { data: list } = await supabaseAdmin.auth.admin.listUsers();
     return (roles ?? []).map(r => {
       const u = list.users.find(x => x.id === r.user_id);
-      return { user_id: r.user_id, email: u?.email ?? "(לא ידוע)", created_at: r.created_at };
+      return {
+        user_id: r.user_id,
+        email: u?.email ?? "(לא ידוע)",
+        username: (u?.user_metadata as any)?.username ?? null,
+        created_at: r.created_at,
+      };
     });
   });
 
@@ -84,21 +89,37 @@ export const createAdminUser = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input) => z.object({
     email: z.string().email(),
+    username: z.string().min(2).max(40).regex(/^[a-zA-Z0-9_.-]+$/, "שם משתמש לא תקין"),
     password: z.string().min(8).max(72),
   }).parse(input))
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const usernameLower = data.username.trim().toLowerCase();
     const { data: list } = await supabaseAdmin.auth.admin.listUsers();
+
+    // Ensure username is unique across users
+    const usernameTaken = list.users.find(
+      (u) => ((u.user_metadata as any)?.username || "").toString().toLowerCase() === usernameLower
+        && u.email?.toLowerCase() !== data.email.toLowerCase(),
+    );
+    if (usernameTaken) throw new Error("שם המשתמש כבר תפוס");
+
     let userId = list.users.find(u => u.email?.toLowerCase() === data.email.toLowerCase())?.id;
     if (!userId) {
       const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
-        email: data.email, password: data.password, email_confirm: true,
+        email: data.email,
+        password: data.password,
+        email_confirm: true,
+        user_metadata: { username: usernameLower },
       });
       if (error || !created.user) throw new Error(error?.message || "שגיאה ביצירת משתמש");
       userId = created.user.id;
     } else {
-      await supabaseAdmin.auth.admin.updateUserById(userId, { password: data.password });
+      await supabaseAdmin.auth.admin.updateUserById(userId, {
+        password: data.password,
+        user_metadata: { username: usernameLower },
+      });
     }
     await supabaseAdmin.from("user_roles").upsert({ user_id: userId, role: "admin" }, { onConflict: "user_id,role" });
     return { ok: true };
