@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Download, Filter, X, Phone, User, Pencil, Plus, Minus, Trash2 } from "lucide-react";
+import { Download, Filter, X, Phone, User, Pencil, Plus, Minus, Trash2, Eraser } from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 
