@@ -170,9 +170,14 @@ function OrdersPage() {
           <h1 className="text-2xl font-bold">הזמנות</h1>
           <p className="text-sm text-muted-foreground">{orders?.length ?? 0} הזמנות · סה״כ ₪{totalSum.toFixed(0)}</p>
         </div>
-        <Button onClick={exportExcel} disabled={!orders?.length}>
-          <Download className="w-4 h-4 ml-2" /> ייצוא לאקסל
-        </Button>
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" onClick={() => setCleanupOpen(true)}>
+            <Eraser className="w-4 h-4 ml-2" /> מחיקת הזמנות ישנות
+          </Button>
+          <Button onClick={exportExcel} disabled={!orders?.length}>
+            <Download className="w-4 h-4 ml-2" /> ייצוא לאקסל
+          </Button>
+        </div>
       </div>
 
       <Card className="p-4">
