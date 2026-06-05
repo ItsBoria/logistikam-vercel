@@ -7,7 +7,7 @@ import { PushToggle } from "@/components/push-toggle";
 import { BrandLogo } from "@/components/brand-logo";
 import { BottomTabBar } from "@/components/bottom-tab-bar";
 
-import { getTeamSession, setTeamSession } from "@/lib/team-session";
+import { getTeamSession } from "@/lib/team-session";
 import { VAT_LABEL, formatCurrency } from "@/lib/pricing";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -132,7 +132,7 @@ function Shop() {
 
 
 
-  function logout() { setTeamSession(null); navigate({ to: "/" }); }
+  
 
   if (!session) return null;
   if (isLoading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
