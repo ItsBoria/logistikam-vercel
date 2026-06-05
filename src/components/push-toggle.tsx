@@ -101,17 +101,8 @@ export function PushToggle({ pin }: { pin: string }) {
   }
 
   if (iosNeedsInstall) {
-    return (
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() =>
-          toast.info("ב‑iPhone: לחצו על כפתור השיתוף בספארי → 'הוסף למסך הבית', פתחו את האפליקציה מהמסך הבית, וחזרו לכאן להפעלה")
-        }
-      >
-        <Smartphone className="w-4 h-4 ml-2" /> הוסף למסך הבית
-      </Button>
-    );
+    // InstallButton in the "עוד" sheet handles the Add-to-Home-Screen flow.
+    return null;
   }
 
   if (!supported) {
