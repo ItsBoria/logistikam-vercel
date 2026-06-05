@@ -103,19 +103,14 @@ function ReplacementsPage() {
   return (
     <div className="min-h-screen bg-secondary/30">
       <header className="bg-card border-b sticky top-0 z-30 backdrop-blur">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
           <div>
             <h1 className="font-bold text-lg flex items-center gap-2"><Replace className="w-5 h-5" /> החלפת פריט שבור</h1>
             <p className="text-xs text-muted-foreground">{data?.team.name} · ללא חיוב מתקציב</p>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button asChild variant="outline" size="sm"><Link to="/shop"><Store className="w-4 h-4 ml-2" /> חנות</Link></Button>
-            <Button asChild variant="outline" size="sm"><Link to="/shop/orders"><ClipboardList className="w-4 h-4 ml-2" /> הזמנות</Link></Button>
-            <Button variant="outline" size="sm" onClick={() => setCheckout(true)} disabled={itemCount === 0}>
-              <ShoppingCart className="w-4 h-4 ml-2" /> סל ({itemCount})
-            </Button>
-            <Button variant="ghost" size="sm" onClick={logout}><LogOut className="w-4 h-4" /></Button>
-          </div>
+          <Button variant="outline" size="sm" onClick={() => setCheckout(true)} disabled={itemCount === 0}>
+            <ShoppingCart className="w-4 h-4 ml-2" /> סל ({itemCount})
+          </Button>
         </div>
       </header>
 
