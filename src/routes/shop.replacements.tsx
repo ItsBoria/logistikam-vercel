@@ -10,8 +10,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ShoppingCart, Plus, Minus, LogOut, Loader2, Trash2, ClipboardList, Store, Replace } from "lucide-react";
+import { ShoppingCart, Plus, Minus, Loader2, Trash2, Replace } from "lucide-react";
 import { toast } from "sonner";
+import { BottomTabBar } from "@/components/bottom-tab-bar";
 
 export const Route = createFileRoute("/shop/replacements")({
   ssr: false,
