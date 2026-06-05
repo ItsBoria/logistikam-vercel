@@ -180,13 +180,15 @@ function ReplacementsPage() {
       </main>
 
       {itemCount > 0 && (
-        <div className="sm:hidden fixed bottom-0 inset-x-0 z-40 bg-card border-t shadow-lg p-3 flex items-center gap-3">
+        <div className="sm:hidden fixed bottom-16 inset-x-0 z-30 bg-card border-t shadow-lg p-3 flex items-center gap-3">
           <div className="flex-1 text-xs text-muted-foreground">{itemCount} פריטים להחלפה</div>
           <Button className="h-12 px-6 text-base" onClick={() => setCheckout(true)}>
             <ShoppingCart className="w-5 h-5 ml-2" /> שליחת בקשה
           </Button>
         </div>
       )}
+
+      <BottomTabBar />
 
       <Dialog open={checkout} onOpenChange={setCheckout}>
         <DialogContent className="max-w-lg">
