@@ -17,7 +17,7 @@ import { sendTestPush } from "@/lib/push.functions";
 export const Route = createFileRoute("/admin/teams")({
   ssr: false,
   head: () => ({ meta: [{ title: "צוותים - פאנל ניהול" }] }),
-  component: () => <AdminShell><Teams /></AdminShell>,
+  component: () => <AdminShell adminOnly><Teams /></AdminShell>,
 });
 
 function Teams() {

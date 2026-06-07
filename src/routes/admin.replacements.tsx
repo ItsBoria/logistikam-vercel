@@ -15,7 +15,7 @@ import { toast } from "sonner";
 export const Route = createFileRoute("/admin/replacements")({
   ssr: false,
   head: () => ({ meta: [{ title: "בקשות החלפה - פאנל ניהול" }] }),
-  component: () => <AdminShell><Page /></AdminShell>,
+  component: () => <AdminShell adminOnly><Page /></AdminShell>,
 });
 
 const STATUS_LABEL: Record<string, string> = {
