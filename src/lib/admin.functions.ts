@@ -136,6 +136,7 @@ export const createAdminUser = createServerFn({ method: "POST" })
     email: z.string().email(),
     username: z.string().min(2).max(40).regex(/^[a-zA-Z0-9_.-]+$/, "שם משתמש לא תקין"),
     password: z.string().min(8).max(72),
+    role: z.enum(["admin", "staff"]).default("admin"),
   }).parse(input))
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
@@ -166,7 +167,37 @@ export const createAdminUser = createServerFn({ method: "POST" })
         user_metadata: { username: usernameLower },
       });
     }
-    await supabaseAdmin.from("user_roles").upsert({ user_id: userId, role: "admin" }, { onConflict: "user_id,role" });
+    await supabaseAdmin.from("user_roles").upsert({ user_id: userId, role: data.role }, { onConflict: "user_id,role" });
+
+    // Default notification prefs ON for new admin users
+    if (data.role === "admin") {
+      const events = ["order_created", "order_awaiting_approval", "low_stock", "replacement_request"];
+      await supabaseAdmin.from("admin_notification_prefs").upsert(
+        events.map((e) => ({ user_id: userId!, event_type: e, enabled: true })),
+        { onConflict: "user_id,event_type" },
+      );
+    }
+    return { ok: true };
+  });
+
+export const updateAdminUserRole = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({
+    user_id: z.string().uuid(),
+    role: z.enum(["admin", "staff"]),
+  }).parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.userId);
+    if (data.user_id === context.userId && data.role !== "admin") {
+      throw new Error("לא ניתן לשנות את התפקיד של עצמך");
+    }
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    // Remove other admin/staff roles, then set the chosen one
+    await supabaseAdmin.from("user_roles").delete()
+      .eq("user_id", data.user_id).in("role", ["admin", "staff"]);
+    const { error } = await supabaseAdmin.from("user_roles")
+      .insert({ user_id: data.user_id, role: data.role });
+    if (error) throw new Error(error.message);
     return { ok: true };
   });
 
@@ -177,7 +208,7 @@ export const deleteAdminUser = createServerFn({ method: "POST" })
     await assertAdmin(context.userId);
     if (data.user_id === context.userId) throw new Error("לא ניתן למחוק את עצמך");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    await supabaseAdmin.from("user_roles").delete().eq("user_id", data.user_id).eq("role", "admin");
+    await supabaseAdmin.from("user_roles").delete().eq("user_id", data.user_id).in("role", ["admin", "staff"]);
     await supabaseAdmin.auth.admin.deleteUser(data.user_id);
     return { ok: true };
   });
