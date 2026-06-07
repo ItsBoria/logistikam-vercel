@@ -306,7 +306,7 @@ export const updateProductStock = createServerFn({ method: "POST" })
     const { data: prev } = await supabaseAdmin
       .from("products").select("stock").eq("id", data.id).maybeSingle();
     if (!prev) throw new Error("מוצר לא נמצא");
-    const update: Record<string, any> = { stock: data.stock };
+    const update: { stock: number; low_stock_threshold?: number | null } = { stock: data.stock };
     if (data.low_stock_threshold !== undefined) update.low_stock_threshold = data.low_stock_threshold;
     const { error } = await supabaseAdmin.from("products").update(update).eq("id", data.id);
     if (error) throw new Error(error.message);
