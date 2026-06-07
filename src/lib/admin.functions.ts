@@ -474,7 +474,10 @@ export const updateOrderStatus = createServerFn({ method: "POST" })
       for (const it of prev.order_items as any[]) {
         if (!it.product_id) continue;
         const { data: prod } = await supabaseAdmin.from("products").select("stock").eq("id", it.product_id).maybeSingle();
-        if (prod) await supabaseAdmin.from("products").update({ stock: Math.max(0, prod.stock - it.quantity) }).eq("id", it.product_id);
+        if (prod) {
+          await supabaseAdmin.from("products").update({ stock: Math.max(0, prod.stock - it.quantity) }).eq("id", it.product_id);
+          await maybeNotifyLowStock(supabaseAdmin, it.product_id, Number(prod.stock));
+        }
       }
     }
     // If cancelling a previously stock-deducted order, restore stock
@@ -523,7 +526,7 @@ export const updateOrderItems = createServerFn({ method: "POST" })
     notes: z.string().max(500).optional().nullable(),
   }).parse(input))
   .handler(async ({ data, context }) => {
-    await assertAdmin(context.userId);
+    await assertAdminOrStaff(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
     const { data: prev } = await supabaseAdmin
