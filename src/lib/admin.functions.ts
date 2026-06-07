@@ -336,7 +336,7 @@ const productSchema = z.object({
 export const getAppSettings = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    await assertAdmin(context.userId);
+    await assertAdminOrStaff(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data } = await supabaseAdmin.from("app_settings").select("key, value");
     const map: Record<string, any> = {};
@@ -445,7 +445,7 @@ export const listOrders = createServerFn({ method: "POST" })
     to: z.string().nullable().optional(),
   }).parse(input))
   .handler(async ({ data, context }) => {
-    await assertAdmin(context.userId);
+    await assertAdminOrStaff(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     let q = supabaseAdmin.from("orders").select("*, teams(name), order_items(*)").order("created_at", { ascending: false });
     if (data.team_id) q = q.eq("team_id", data.team_id);
@@ -464,7 +464,7 @@ export const updateOrderStatus = createServerFn({ method: "POST" })
     status: z.enum(["pending","approved","preparing","ready","completed","cancelled","awaiting_approval"]),
   }).parse(input))
   .handler(async ({ data, context }) => {
-    await assertAdmin(context.userId);
+    await assertAdminOrStaff(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: prev } = await supabaseAdmin.from("orders").select("*, order_items(*), teams(name)").eq("id", data.id).single();
     if (!prev) throw new Error("הזמנה לא נמצאה");
