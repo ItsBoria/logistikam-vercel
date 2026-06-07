@@ -1,30 +1,31 @@
-# Admin bottom tab bar
+## Goal
+Fix the admin login flow so that after a successful sign-in, admins are actually taken into the admin panel instead of getting stuck on the welcome screen.
 
-Add a bottom tab bar to the admin/staff panel (the shop already has one). Keep the existing top navigation in `AdminShell` as-is; the bottom bar is additional.
+## What I’ll change
 
-## Scope
+### 1. Stop the global auth loop
+Update the root auth listener so it only reacts to real auth changes (`SIGNED_IN`, `SIGNED_OUT`, `USER_UPDATED`) instead of every auth event. This should stop the repeated history replacements that are blocking navigation.
 
-- New component: `src/components/admin-bottom-tab-bar.tsx`
-  - Mirrors the visual style of `BottomTabBar` (fixed bottom, safe-area inset, sticky, RTL-friendly).
-  - Renders a different set of tabs for admin vs. staff (4 tabs each, to stay readable on mobile):
-    - Admin: סקירה (`/admin`), הזמנות (`/admin/orders`), מוצרים (`/admin/products`), התראות (`/admin/notifications`).
-    - Staff: סקירה (`/admin`), הזמנות (`/admin/orders`), מלאי (`/admin/stock`), התראות (`/admin/notifications`).
-  - The remaining admin sections (החלפות, מלאי החלפות, צוותים, מנהלים) stay reachable via the top nav.
-  - Active-state styling via `useRouterState` + `Link` `to`/`params`, matching the existing pattern in `AdminShell`.
+### 2. Remove duplicate post-login navigation
+Adjust the login page so it does not try to navigate to the admin area twice:
+- once immediately after password sign-in
+- again when roles finish loading
 
-- `src/components/admin-shell.tsx`
-  - Keep top header/nav unchanged (both desktop top bar and mobile horizontal scroll bar continue to work).
-  - Render `<AdminBottomTabBar role={roles.isAdmin ? "admin" : "staff"} />` at the end of the shell.
-  - Add bottom padding to `<main>` (e.g. `pb-20`) so content isn't covered by the fixed bar.
+I’ll keep a single redirect path based on the user’s role.
 
-## Out of scope
+### 3. Use one consistent role-loading path
+Make the home/login route use the existing `useAdminRoles()` hook instead of running a second separate role query with different cache timing. This should stabilize the redirect and avoid re-triggering the route logic.
 
-- No removal/redesign of the current top nav.
-- No changes to existing admin routes, permissions, or notifications.
-- No changes to the shop bottom bar.
+## Expected result
+- Admin login shows the welcome message and then opens `/admin`
+- Staff login opens their allowed admin/staff page
+- No endless redirect loop in the browser
+- No `replaceState` spam in the console
 
 ## Technical notes
+Files likely involved:
+- `src/routes/__root.tsx`
+- `src/routes/index.tsx`
+- `src/hooks/use-admin-roles.ts`
 
-- Reuse Tailwind tokens already used by `BottomTabBar` (bg-card/border-t/safe-area inset). No new design tokens.
-- Tabs use typed `<Link to="/admin/...">` — all referenced routes already exist in `src/routes/`.
-- Visible to both admin and staff; the tab set switches based on the `useAdminRoles()` result already read in `AdminShell`.
+I already verified this is not a missing-role issue: the recent admin accounts do have `admin` roles in the database.

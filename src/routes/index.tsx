@@ -4,10 +4,9 @@ import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
 import { verifyTeamPin } from "@/lib/team.functions";
 import { setTeamSession, getTeamSession } from "@/lib/team-session";
-import { useSupabaseSession } from "@/hooks/use-supabase-session";
+import { useAdminRoles } from "@/hooks/use-admin-roles";
 import { supabase } from "@/integrations/supabase/client";
 import { adminAuthStatus, resolveAdminEmail, bootstrapAdminUsername } from "@/lib/admin-auth.functions";
-import { getMyAdminRoles } from "@/lib/admin-notifications.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -30,24 +29,17 @@ export const Route = createFileRoute("/")({
 function Home() {
   const navigate = useNavigate();
   const search = Route.useSearch();
-  const { session } = useSupabaseSession();
-  const rolesFn = useServerFn(getMyAdminRoles);
-  const { data: myRoles } = useQuery({
-    enabled: !!session,
-    queryKey: ["my-admin-roles", session?.user.id],
-    queryFn: () => rolesFn(),
-    staleTime: 0,
-  });
+  const { session, loading: rolesLoading, data: myRoles } = useAdminRoles();
 
   const [tab, setTab] = useState<"team" | "admin">(search.tab ?? "team");
 
   // Route logged-in admin/staff to their landing
   useEffect(() => {
-    if (!session || !myRoles) return;
+    if (!session || rolesLoading || !myRoles) return;
     if (myRoles.isAdmin) navigate({ to: "/admin", replace: true });
     else if (myRoles.isStaff) navigate({ to: "/admin/orders", replace: true });
     else { supabase.auth.signOut(); }
-  }, [session, myRoles, navigate]);
+  }, [session, rolesLoading, myRoles, navigate]);
 
   // Already PIN-authed → shop
   useEffect(() => {
@@ -145,8 +137,6 @@ function AdminForm() {
         if (error) throw new Error("שם משתמש או סיסמה שגויים");
         toast.success("ברוך/ה הבא/ה");
       }
-      // The effect in <Home /> will route by role after session resolves
-      navigate({ to: "/admin", replace: true });
     } catch (e: any) {
       toast.error(e.message || "שגיאה");
     } finally { setLoading(false); }
