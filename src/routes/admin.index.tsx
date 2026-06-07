@@ -148,7 +148,7 @@ function DashboardPage() {
         <Card className="p-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-bold">תקציבי צוותים</h2>
-            <Link to="/admin/teams" className="text-xs text-muted-foreground hover:text-foreground">ניהול צוותים ←</Link>
+            {isAdmin && <Link to="/admin/teams" className="text-xs text-muted-foreground hover:text-foreground">ניהול צוותים ←</Link>}
           </div>
           {topTeams.length === 0 ? (
             <p className="text-sm text-muted-foreground">אין צוותים פעילים</p>
@@ -198,7 +198,7 @@ function DashboardPage() {
         <Card className="p-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-bold flex items-center gap-2"><Package className="w-4 h-4" /> מלאי נמוך</h2>
-            <Link to="/admin/products" className="text-xs text-muted-foreground hover:text-foreground">ניהול מוצרים ←</Link>
+            <Link to={isAdmin ? "/admin/products" : "/admin/stock"} className="text-xs text-muted-foreground hover:text-foreground">{isAdmin ? "ניהול מוצרים" : "ניהול מלאי"} ←</Link>
           </div>
           {lowStock.length === 0 ? (
             <p className="text-sm text-muted-foreground">כל המוצרים במלאי תקין</p>
