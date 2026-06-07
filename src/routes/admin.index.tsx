@@ -114,29 +114,31 @@ function DashboardPage() {
         <Kpi icon={<Users className="w-5 h-5" />} label="צוותים פעילים" value={kpis.activeTeams} />
       </div>
 
-      {/* Global low-stock threshold */}
-      <Card className="p-4">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <h2 className="font-bold flex items-center gap-2"><Settings className="w-4 h-4" /> סף ברירת מחדל למלאי נמוך</h2>
-            <p className="text-xs text-muted-foreground mt-1">מוצרים בלי סף אישי ייחשבו "מלאי נמוך" כאשר המלאי קטן או שווה לערך הזה.</p>
+      {/* Global low-stock threshold (admin only) */}
+      {isAdmin && (
+        <Card className="p-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <h2 className="font-bold flex items-center gap-2"><Settings className="w-4 h-4" /> סף ברירת מחדל למלאי נמוך</h2>
+              <p className="text-xs text-muted-foreground mt-1">מוצרים בלי סף אישי ייחשבו "מלאי נמוך" כאשר המלאי קטן או שווה לערך הזה.</p>
+            </div>
+            {editingThreshold ? (
+              <div className="flex items-center gap-2">
+                <Input type="number" min={0} value={thresholdValue} onChange={(e) => setThresholdValue(e.target.value)} className="h-9 w-24" dir="ltr" />
+                <Button size="icon" variant="default" className="h-9 w-9" onClick={saveThreshold}><Check className="w-4 h-4" /></Button>
+                <Button size="icon" variant="outline" className="h-9 w-9" onClick={() => setEditingThreshold(false)}><X className="w-4 h-4" /></Button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-lg font-bold tabular-nums">{settings?.default_low_stock_threshold ?? data.defaultLowStockThreshold ?? 5}</span>
+                <Button variant="outline" size="sm" onClick={() => { setEditingThreshold(true); setThresholdValue(String(settings?.default_low_stock_threshold ?? data.defaultLowStockThreshold ?? 5)); }}>
+                  <Pencil className="w-3 h-3 ml-1" /> שינוי
+                </Button>
+              </div>
+            )}
           </div>
-          {editingThreshold ? (
-            <div className="flex items-center gap-2">
-              <Input type="number" min={0} value={thresholdValue} onChange={(e) => setThresholdValue(e.target.value)} className="h-9 w-24" dir="ltr" />
-              <Button size="icon" variant="default" className="h-9 w-9" onClick={saveThreshold}><Check className="w-4 h-4" /></Button>
-              <Button size="icon" variant="outline" className="h-9 w-9" onClick={() => setEditingThreshold(false)}><X className="w-4 h-4" /></Button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <span className="text-lg font-bold tabular-nums">{settings?.default_low_stock_threshold ?? data.defaultLowStockThreshold ?? 5}</span>
-              <Button variant="outline" size="sm" onClick={() => { setEditingThreshold(true); setThresholdValue(String(settings?.default_low_stock_threshold ?? data.defaultLowStockThreshold ?? 5)); }}>
-                <Pencil className="w-3 h-3 ml-1" /> שינוי
-              </Button>
-            </div>
-          )}
-        </div>
-      </Card>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Top teams */}
