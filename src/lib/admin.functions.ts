@@ -213,8 +213,6 @@ export const deleteAdminUser = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-// Teams
-export const listTeams = createServerFn({ method: "GET" })
 // Teams (admin-only — exposes PIN)
 export const listTeams = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
