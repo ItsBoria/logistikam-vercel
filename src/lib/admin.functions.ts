@@ -66,6 +66,36 @@ async function assertAdmin(userId: string) {
   if (!data) throw new Error("גישה לאדמין בלבד");
 }
 
+async function assertAdminOrStaff(userId: string) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data } = await supabaseAdmin.from("user_roles")
+    .select("role").eq("user_id", userId).in("role", ["admin", "staff"]);
+  if (!data || data.length === 0) throw new Error("גישה מורשית בלבד");
+}
+
+// Low-stock check + admin push notification. Best-effort.
+async function maybeNotifyLowStock(supabaseAdmin: any, productId: string, prevStock: number) {
+  try {
+    const { data: prod } = await supabaseAdmin
+      .from("products").select("id, name, stock, low_stock_threshold, active").eq("id", productId).maybeSingle();
+    if (!prod || !prod.active) return;
+    const { data: settingRow } = await supabaseAdmin
+      .from("app_settings").select("value").eq("key", "default_low_stock_threshold").maybeSingle();
+    const defaultThreshold = Number((settingRow?.value as any) ?? 5);
+    const threshold = prod.low_stock_threshold ?? defaultThreshold;
+    if (prevStock > threshold && prod.stock <= threshold) {
+      const { sendPushToAdmins } = await import("./admin-push.server");
+      await sendPushToAdmins("low_stock", {
+        title: prod.stock === 0 ? "מוצר אזל מהמלאי" : "התראת מלאי נמוך",
+        body: `${prod.name} — נשאר ${prod.stock} (סף ${threshold})`,
+        url: "/admin/notifications",
+      });
+    }
+  } catch (e: any) {
+    console.warn("[low stock notify] failed:", e?.message);
+  }
+}
+
 // Admin user management
 export const listAdminUsers = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
