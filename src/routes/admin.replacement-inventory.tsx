@@ -21,7 +21,7 @@ import * as XLSX from "xlsx";
 export const Route = createFileRoute("/admin/replacement-inventory")({
   ssr: false,
   head: () => ({ meta: [{ title: "מלאי החלפות - פאנל ניהול" }] }),
-  component: () => <AdminShell><Page /></AdminShell>,
+  component: () => <AdminShell adminOnly><Page /></AdminShell>,
 });
 
 function fileToBase64(file: File): Promise<string> {

@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AdminShell } from "@/components/admin-shell";
 import { getAdminDashboard, setTeamMonthlyLimit } from "@/lib/admin-dashboard.functions";
 import { updateOrderStatus, getAppSettings, setDefaultLowStockThreshold } from "@/lib/admin.functions";
+import { useAdminRoles } from "@/hooks/use-admin-roles";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,6 +41,8 @@ const STATUS_COLOR: Record<string, string> = {
 
 function DashboardPage() {
   const qc = useQueryClient();
+  const { data: myRoles } = useAdminRoles();
+  const isAdmin = !!myRoles?.isAdmin;
   const dashFn = useServerFn(getAdminDashboard);
   const limitFn = useServerFn(setTeamMonthlyLimit);
   const statusFn = useServerFn(updateOrderStatus);
@@ -107,40 +110,45 @@ function DashboardPage() {
         <Kpi icon={<Replace className="w-5 h-5" />} label="בקשות החלפה" value={kpis.pendingReplacements} tone={kpis.pendingReplacements > 0 ? "warning" : undefined} />
         <Kpi icon={<Package className="w-5 h-5" />} label="מלאי נמוך" value={kpis.lowStock} tone={kpis.lowStock > 0 ? "warning" : undefined} />
         <Kpi icon={<ShoppingBag className="w-5 h-5" />} label="הזמנות החודש" value={kpis.monthOrders} />
-        <Kpi icon={<DollarSign className="w-5 h-5" />} label="הכנסות החודש" value={formatCurrency(kpis.monthRevenue)} />
+        {isAdmin && (
+          <Kpi icon={<DollarSign className="w-5 h-5" />} label="הכנסות החודש" value={formatCurrency(kpis.monthRevenue)} />
+        )}
         <Kpi icon={<Users className="w-5 h-5" />} label="צוותים פעילים" value={kpis.activeTeams} />
       </div>
 
-      {/* Global low-stock threshold */}
-      <Card className="p-4">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <h2 className="font-bold flex items-center gap-2"><Settings className="w-4 h-4" /> סף ברירת מחדל למלאי נמוך</h2>
-            <p className="text-xs text-muted-foreground mt-1">מוצרים בלי סף אישי ייחשבו "מלאי נמוך" כאשר המלאי קטן או שווה לערך הזה.</p>
+
+      {/* Global low-stock threshold (admin only) */}
+      {isAdmin && (
+        <Card className="p-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <h2 className="font-bold flex items-center gap-2"><Settings className="w-4 h-4" /> סף ברירת מחדל למלאי נמוך</h2>
+              <p className="text-xs text-muted-foreground mt-1">מוצרים בלי סף אישי ייחשבו "מלאי נמוך" כאשר המלאי קטן או שווה לערך הזה.</p>
+            </div>
+            {editingThreshold ? (
+              <div className="flex items-center gap-2">
+                <Input type="number" min={0} value={thresholdValue} onChange={(e) => setThresholdValue(e.target.value)} className="h-9 w-24" dir="ltr" />
+                <Button size="icon" variant="default" className="h-9 w-9" onClick={saveThreshold}><Check className="w-4 h-4" /></Button>
+                <Button size="icon" variant="outline" className="h-9 w-9" onClick={() => setEditingThreshold(false)}><X className="w-4 h-4" /></Button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-lg font-bold tabular-nums">{settings?.default_low_stock_threshold ?? data.defaultLowStockThreshold ?? 5}</span>
+                <Button variant="outline" size="sm" onClick={() => { setEditingThreshold(true); setThresholdValue(String(settings?.default_low_stock_threshold ?? data.defaultLowStockThreshold ?? 5)); }}>
+                  <Pencil className="w-3 h-3 ml-1" /> שינוי
+                </Button>
+              </div>
+            )}
           </div>
-          {editingThreshold ? (
-            <div className="flex items-center gap-2">
-              <Input type="number" min={0} value={thresholdValue} onChange={(e) => setThresholdValue(e.target.value)} className="h-9 w-24" dir="ltr" />
-              <Button size="icon" variant="default" className="h-9 w-9" onClick={saveThreshold}><Check className="w-4 h-4" /></Button>
-              <Button size="icon" variant="outline" className="h-9 w-9" onClick={() => setEditingThreshold(false)}><X className="w-4 h-4" /></Button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <span className="text-lg font-bold tabular-nums">{settings?.default_low_stock_threshold ?? data.defaultLowStockThreshold ?? 5}</span>
-              <Button variant="outline" size="sm" onClick={() => { setEditingThreshold(true); setThresholdValue(String(settings?.default_low_stock_threshold ?? data.defaultLowStockThreshold ?? 5)); }}>
-                <Pencil className="w-3 h-3 ml-1" /> שינוי
-              </Button>
-            </div>
-          )}
-        </div>
-      </Card>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Top teams */}
         <Card className="p-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-bold">תקציבי צוותים</h2>
-            <Link to="/admin/teams" className="text-xs text-muted-foreground hover:text-foreground">ניהול צוותים ←</Link>
+            {isAdmin && <Link to="/admin/teams" className="text-xs text-muted-foreground hover:text-foreground">ניהול צוותים ←</Link>}
           </div>
           {topTeams.length === 0 ? (
             <p className="text-sm text-muted-foreground">אין צוותים פעילים</p>
@@ -159,7 +167,7 @@ function DashboardPage() {
                         <span className="tabular-nums text-muted-foreground">
                           {formatCurrency(t.spent)}{t.monthly_limit > 0 ? ` / ${formatCurrency(t.monthly_limit)}` : ""}
                         </span>
-                        {!isEditing && (
+                        {!isEditing && isAdmin && (
                           <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setEditingTeam(t.id); setLimitValue(String(t.monthly_limit)); }}>
                             <Pencil className="w-3 h-3" />
                           </Button>
@@ -190,7 +198,7 @@ function DashboardPage() {
         <Card className="p-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-bold flex items-center gap-2"><Package className="w-4 h-4" /> מלאי נמוך</h2>
-            <Link to="/admin/products" className="text-xs text-muted-foreground hover:text-foreground">ניהול מוצרים ←</Link>
+            <Link to={isAdmin ? "/admin/products" : "/admin/stock"} className="text-xs text-muted-foreground hover:text-foreground">{isAdmin ? "ניהול מוצרים" : "ניהול מלאי"} ←</Link>
           </div>
           {lowStock.length === 0 ? (
             <p className="text-sm text-muted-foreground">כל המוצרים במלאי תקין</p>

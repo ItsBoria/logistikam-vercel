@@ -17,7 +17,7 @@ import * as XLSX from "xlsx";
 export const Route = createFileRoute("/admin/products")({
   ssr: false,
   head: () => ({ meta: [{ title: "מוצרים - פאנל ניהול" }] }),
-  component: () => <AdminShell><Products /></AdminShell>,
+  component: () => <AdminShell adminOnly><Products /></AdminShell>,
 });
 
 function fileToBase64(file: File): Promise<string> {

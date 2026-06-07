@@ -16,10 +16,12 @@ import { Route as ShopReplacementsRouteImport } from './routes/shop.replacements
 import { Route as ShopOrdersRouteImport } from './routes/shop.orders'
 import { Route as AdminUsersRouteImport } from './routes/admin.users'
 import { Route as AdminTeamsRouteImport } from './routes/admin.teams'
+import { Route as AdminStockRouteImport } from './routes/admin.stock'
 import { Route as AdminReplacementsRouteImport } from './routes/admin.replacements'
 import { Route as AdminReplacementInventoryRouteImport } from './routes/admin.replacement-inventory'
 import { Route as AdminProductsRouteImport } from './routes/admin.products'
 import { Route as AdminOrdersRouteImport } from './routes/admin.orders'
+import { Route as AdminNotificationsRouteImport } from './routes/admin.notifications'
 import { Route as AdminLoginRouteImport } from './routes/admin.login'
 
 const IndexRoute = IndexRouteImport.update({
@@ -57,6 +59,11 @@ const AdminTeamsRoute = AdminTeamsRouteImport.update({
   path: '/admin/teams',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminStockRoute = AdminStockRouteImport.update({
+  id: '/admin/stock',
+  path: '/admin/stock',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminReplacementsRoute = AdminReplacementsRouteImport.update({
   id: '/admin/replacements',
   path: '/admin/replacements',
@@ -78,6 +85,11 @@ const AdminOrdersRoute = AdminOrdersRouteImport.update({
   path: '/admin/orders',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminNotificationsRoute = AdminNotificationsRouteImport.update({
+  id: '/admin/notifications',
+  path: '/admin/notifications',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminLoginRoute = AdminLoginRouteImport.update({
   id: '/admin/login',
   path: '/admin/login',
@@ -87,10 +99,12 @@ const AdminLoginRoute = AdminLoginRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin/login': typeof AdminLoginRoute
+  '/admin/notifications': typeof AdminNotificationsRoute
   '/admin/orders': typeof AdminOrdersRoute
   '/admin/products': typeof AdminProductsRoute
   '/admin/replacement-inventory': typeof AdminReplacementInventoryRoute
   '/admin/replacements': typeof AdminReplacementsRoute
+  '/admin/stock': typeof AdminStockRoute
   '/admin/teams': typeof AdminTeamsRoute
   '/admin/users': typeof AdminUsersRoute
   '/shop/orders': typeof ShopOrdersRoute
@@ -101,10 +115,12 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin/login': typeof AdminLoginRoute
+  '/admin/notifications': typeof AdminNotificationsRoute
   '/admin/orders': typeof AdminOrdersRoute
   '/admin/products': typeof AdminProductsRoute
   '/admin/replacement-inventory': typeof AdminReplacementInventoryRoute
   '/admin/replacements': typeof AdminReplacementsRoute
+  '/admin/stock': typeof AdminStockRoute
   '/admin/teams': typeof AdminTeamsRoute
   '/admin/users': typeof AdminUsersRoute
   '/shop/orders': typeof ShopOrdersRoute
@@ -116,10 +132,12 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin/login': typeof AdminLoginRoute
+  '/admin/notifications': typeof AdminNotificationsRoute
   '/admin/orders': typeof AdminOrdersRoute
   '/admin/products': typeof AdminProductsRoute
   '/admin/replacement-inventory': typeof AdminReplacementInventoryRoute
   '/admin/replacements': typeof AdminReplacementsRoute
+  '/admin/stock': typeof AdminStockRoute
   '/admin/teams': typeof AdminTeamsRoute
   '/admin/users': typeof AdminUsersRoute
   '/shop/orders': typeof ShopOrdersRoute
@@ -132,10 +150,12 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin/login'
+    | '/admin/notifications'
     | '/admin/orders'
     | '/admin/products'
     | '/admin/replacement-inventory'
     | '/admin/replacements'
+    | '/admin/stock'
     | '/admin/teams'
     | '/admin/users'
     | '/shop/orders'
@@ -146,10 +166,12 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/admin/login'
+    | '/admin/notifications'
     | '/admin/orders'
     | '/admin/products'
     | '/admin/replacement-inventory'
     | '/admin/replacements'
+    | '/admin/stock'
     | '/admin/teams'
     | '/admin/users'
     | '/shop/orders'
@@ -160,10 +182,12 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/admin/login'
+    | '/admin/notifications'
     | '/admin/orders'
     | '/admin/products'
     | '/admin/replacement-inventory'
     | '/admin/replacements'
+    | '/admin/stock'
     | '/admin/teams'
     | '/admin/users'
     | '/shop/orders'
@@ -175,10 +199,12 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminLoginRoute: typeof AdminLoginRoute
+  AdminNotificationsRoute: typeof AdminNotificationsRoute
   AdminOrdersRoute: typeof AdminOrdersRoute
   AdminProductsRoute: typeof AdminProductsRoute
   AdminReplacementInventoryRoute: typeof AdminReplacementInventoryRoute
   AdminReplacementsRoute: typeof AdminReplacementsRoute
+  AdminStockRoute: typeof AdminStockRoute
   AdminTeamsRoute: typeof AdminTeamsRoute
   AdminUsersRoute: typeof AdminUsersRoute
   ShopOrdersRoute: typeof ShopOrdersRoute
@@ -238,6 +264,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminTeamsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/stock': {
+      id: '/admin/stock'
+      path: '/admin/stock'
+      fullPath: '/admin/stock'
+      preLoaderRoute: typeof AdminStockRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/replacements': {
       id: '/admin/replacements'
       path: '/admin/replacements'
@@ -266,6 +299,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminOrdersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/notifications': {
+      id: '/admin/notifications'
+      path: '/admin/notifications'
+      fullPath: '/admin/notifications'
+      preLoaderRoute: typeof AdminNotificationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/login': {
       id: '/admin/login'
       path: '/admin/login'
@@ -279,10 +319,12 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminLoginRoute: AdminLoginRoute,
+  AdminNotificationsRoute: AdminNotificationsRoute,
   AdminOrdersRoute: AdminOrdersRoute,
   AdminProductsRoute: AdminProductsRoute,
   AdminReplacementInventoryRoute: AdminReplacementInventoryRoute,
   AdminReplacementsRoute: AdminReplacementsRoute,
+  AdminStockRoute: AdminStockRoute,
   AdminTeamsRoute: AdminTeamsRoute,
   AdminUsersRoute: AdminUsersRoute,
   ShopOrdersRoute: ShopOrdersRoute,
@@ -293,13 +335,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

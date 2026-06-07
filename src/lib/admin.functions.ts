@@ -66,21 +66,66 @@ async function assertAdmin(userId: string) {
   if (!data) throw new Error("גישה לאדמין בלבד");
 }
 
+async function assertAdminOrStaff(userId: string) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data } = await supabaseAdmin.from("user_roles")
+    .select("role").eq("user_id", userId).in("role", ["admin", "staff"]);
+  if (!data || data.length === 0) throw new Error("גישה מורשית בלבד");
+}
+
+// Low-stock check + admin push notification. Best-effort.
+async function maybeNotifyLowStock(supabaseAdmin: any, productId: string, prevStock: number) {
+  try {
+    const { data: prod } = await supabaseAdmin
+      .from("products").select("id, name, stock, low_stock_threshold, active").eq("id", productId).maybeSingle();
+    if (!prod || !prod.active) return;
+    const { data: settingRow } = await supabaseAdmin
+      .from("app_settings").select("value").eq("key", "default_low_stock_threshold").maybeSingle();
+    const defaultThreshold = Number((settingRow?.value as any) ?? 5);
+    const threshold = prod.low_stock_threshold ?? defaultThreshold;
+    if (prevStock > threshold && prod.stock <= threshold) {
+      const { sendPushToAdmins } = await import("./admin-push.server");
+      await sendPushToAdmins("low_stock", {
+        title: prod.stock === 0 ? "מוצר אזל מהמלאי" : "התראת מלאי נמוך",
+        body: `${prod.name} — נשאר ${prod.stock} (סף ${threshold})`,
+        url: "/admin/notifications",
+      });
+    }
+  } catch (e: any) {
+    console.warn("[low stock notify] failed:", e?.message);
+  }
+}
+
 // Admin user management
 export const listAdminUsers = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     await assertAdmin(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: roles } = await supabaseAdmin.from("user_roles").select("user_id, created_at").eq("role", "admin");
+    const { data: roles } = await supabaseAdmin
+      .from("user_roles")
+      .select("user_id, role, created_at")
+      .in("role", ["admin", "staff"]);
     const { data: list } = await supabaseAdmin.auth.admin.listUsers();
-    return (roles ?? []).map(r => {
-      const u = list.users.find(x => x.id === r.user_id);
+    // Group roles per user
+    const byUser = new Map<string, { roles: string[]; created_at: string }>();
+    for (const r of roles ?? []) {
+      const row = r as any;
+      const cur = byUser.get(row.user_id) ?? { roles: [] as string[], created_at: row.created_at as string };
+      cur.roles.push(row.role as string);
+      if (new Date(row.created_at) < new Date(cur.created_at)) cur.created_at = row.created_at;
+      byUser.set(row.user_id, cur);
+    }
+    return Array.from(byUser.entries()).map(([userId, info]) => {
+      const u = list.users.find(x => x.id === userId);
       return {
-        user_id: r.user_id,
+        user_id: userId,
         email: u?.email ?? "(לא ידוע)",
         username: (u?.user_metadata as any)?.username ?? null,
-        created_at: r.created_at,
+        roles: info.roles as ("admin" | "staff")[],
+        is_admin: info.roles.includes("admin"),
+        is_staff: info.roles.includes("staff"),
+        created_at: info.created_at,
       };
     });
   });
@@ -91,6 +136,7 @@ export const createAdminUser = createServerFn({ method: "POST" })
     email: z.string().email(),
     username: z.string().min(2).max(40).regex(/^[a-zA-Z0-9_.-]+$/, "שם משתמש לא תקין"),
     password: z.string().min(8).max(72),
+    role: z.enum(["admin", "staff"]).default("admin"),
   }).parse(input))
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
@@ -121,7 +167,37 @@ export const createAdminUser = createServerFn({ method: "POST" })
         user_metadata: { username: usernameLower },
       });
     }
-    await supabaseAdmin.from("user_roles").upsert({ user_id: userId, role: "admin" }, { onConflict: "user_id,role" });
+    await supabaseAdmin.from("user_roles").upsert({ user_id: userId, role: data.role }, { onConflict: "user_id,role" });
+
+    // Default notification prefs ON for new admin users
+    if (data.role === "admin") {
+      const events = ["order_created", "order_awaiting_approval", "low_stock", "replacement_request"];
+      await supabaseAdmin.from("admin_notification_prefs").upsert(
+        events.map((e) => ({ user_id: userId!, event_type: e, enabled: true })),
+        { onConflict: "user_id,event_type" },
+      );
+    }
+    return { ok: true };
+  });
+
+export const updateAdminUserRole = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({
+    user_id: z.string().uuid(),
+    role: z.enum(["admin", "staff"]),
+  }).parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.userId);
+    if (data.user_id === context.userId && data.role !== "admin") {
+      throw new Error("לא ניתן לשנות את התפקיד של עצמך");
+    }
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    // Remove other admin/staff roles, then set the chosen one
+    await supabaseAdmin.from("user_roles").delete()
+      .eq("user_id", data.user_id).in("role", ["admin", "staff"]);
+    const { error } = await supabaseAdmin.from("user_roles")
+      .insert({ user_id: data.user_id, role: data.role });
+    if (error) throw new Error(error.message);
     return { ok: true };
   });
 
@@ -132,12 +208,12 @@ export const deleteAdminUser = createServerFn({ method: "POST" })
     await assertAdmin(context.userId);
     if (data.user_id === context.userId) throw new Error("לא ניתן למחוק את עצמך");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    await supabaseAdmin.from("user_roles").delete().eq("user_id", data.user_id).eq("role", "admin");
+    await supabaseAdmin.from("user_roles").delete().eq("user_id", data.user_id).in("role", ["admin", "staff"]);
     await supabaseAdmin.auth.admin.deleteUser(data.user_id);
     return { ok: true };
   });
 
-// Teams
+// Teams (admin-only — exposes PIN)
 export const listTeams = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
@@ -149,6 +225,16 @@ export const listTeams = createServerFn({ method: "GET" })
       return { ...t, monthly_spent: Number(spent ?? 0) };
     }));
     return withSpent;
+  });
+
+// Lightweight team list (id+name only) for use in filter dropdowns by staff users.
+export const listTeamsBasic = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdminOrStaff(context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data } = await supabaseAdmin.from("teams").select("id, name, active").order("name");
+    return data ?? [];
   });
 
 export const upsertTeam = createServerFn({ method: "POST" })
@@ -195,7 +281,7 @@ export const deleteTeam = createServerFn({ method: "POST" })
 export const listProductsAdmin = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    await assertAdmin(context.userId);
+    await assertAdminOrStaff(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data } = await supabaseAdmin.from("products").select("*").order("name");
     const resolved = await Promise.all((data ?? []).map(async (p) => ({
@@ -204,6 +290,28 @@ export const listProductsAdmin = createServerFn({ method: "GET" })
       _raw_image_url: p.image_url, // for editing
     })));
     return resolved;
+  });
+
+// Staff-friendly stock-only update. Allows admin OR staff. Fires low-stock notification on cross.
+export const updateProductStock = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({
+    id: z.string().uuid(),
+    stock: z.number().int().min(0).max(10_000_000),
+    low_stock_threshold: z.number().int().min(0).max(10_000_000).nullable().optional(),
+  }).parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdminOrStaff(context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: prev } = await supabaseAdmin
+      .from("products").select("stock").eq("id", data.id).maybeSingle();
+    if (!prev) throw new Error("מוצר לא נמצא");
+    const update: { stock: number; low_stock_threshold?: number | null } = { stock: data.stock };
+    if (data.low_stock_threshold !== undefined) update.low_stock_threshold = data.low_stock_threshold;
+    const { error } = await supabaseAdmin.from("products").update(update).eq("id", data.id);
+    if (error) throw new Error(error.message);
+    await maybeNotifyLowStock(supabaseAdmin, data.id, Number(prev.stock));
+    return { ok: true };
   });
 
 // image_url accepts: empty, http(s)://..., or "storage:<path>"
@@ -228,7 +336,7 @@ const productSchema = z.object({
 export const getAppSettings = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    await assertAdmin(context.userId);
+    await assertAdminOrStaff(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data } = await supabaseAdmin.from("app_settings").select("key, value");
     const map: Record<string, any> = {};
@@ -337,7 +445,7 @@ export const listOrders = createServerFn({ method: "POST" })
     to: z.string().nullable().optional(),
   }).parse(input))
   .handler(async ({ data, context }) => {
-    await assertAdmin(context.userId);
+    await assertAdminOrStaff(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     let q = supabaseAdmin.from("orders").select("*, teams(name), order_items(*)").order("created_at", { ascending: false });
     if (data.team_id) q = q.eq("team_id", data.team_id);
@@ -356,7 +464,7 @@ export const updateOrderStatus = createServerFn({ method: "POST" })
     status: z.enum(["pending","approved","preparing","ready","completed","cancelled","awaiting_approval"]),
   }).parse(input))
   .handler(async ({ data, context }) => {
-    await assertAdmin(context.userId);
+    await assertAdminOrStaff(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: prev } = await supabaseAdmin.from("orders").select("*, order_items(*), teams(name)").eq("id", data.id).single();
     if (!prev) throw new Error("הזמנה לא נמצאה");
@@ -366,7 +474,10 @@ export const updateOrderStatus = createServerFn({ method: "POST" })
       for (const it of prev.order_items as any[]) {
         if (!it.product_id) continue;
         const { data: prod } = await supabaseAdmin.from("products").select("stock").eq("id", it.product_id).maybeSingle();
-        if (prod) await supabaseAdmin.from("products").update({ stock: Math.max(0, prod.stock - it.quantity) }).eq("id", it.product_id);
+        if (prod) {
+          await supabaseAdmin.from("products").update({ stock: Math.max(0, prod.stock - it.quantity) }).eq("id", it.product_id);
+          await maybeNotifyLowStock(supabaseAdmin, it.product_id, Number(prod.stock));
+        }
       }
     }
     // If cancelling a previously stock-deducted order, restore stock
@@ -415,7 +526,7 @@ export const updateOrderItems = createServerFn({ method: "POST" })
     notes: z.string().max(500).optional().nullable(),
   }).parse(input))
   .handler(async ({ data, context }) => {
-    await assertAdmin(context.userId);
+    await assertAdminOrStaff(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
     const { data: prev } = await supabaseAdmin
@@ -456,7 +567,10 @@ export const updateOrderItems = createServerFn({ method: "POST" })
       for (const it of newItems) {
         if (!it.product_id) continue;
         const { data: prod } = await supabaseAdmin.from("products").select("stock").eq("id", it.product_id).maybeSingle();
-        if (prod) await supabaseAdmin.from("products").update({ stock: Math.max(0, prod.stock - it.quantity) }).eq("id", it.product_id);
+        if (prod) {
+          await supabaseAdmin.from("products").update({ stock: Math.max(0, prod.stock - it.quantity) }).eq("id", it.product_id);
+          await maybeNotifyLowStock(supabaseAdmin, it.product_id, Number(prod.stock));
+        }
       }
     }
 
