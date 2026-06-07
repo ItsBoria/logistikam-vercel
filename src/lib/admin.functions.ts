@@ -215,6 +215,8 @@ export const deleteAdminUser = createServerFn({ method: "POST" })
 
 // Teams
 export const listTeams = createServerFn({ method: "GET" })
+// Teams (admin-only — exposes PIN)
+export const listTeams = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     await assertAdmin(context.userId);
@@ -225,6 +227,16 @@ export const listTeams = createServerFn({ method: "GET" })
       return { ...t, monthly_spent: Number(spent ?? 0) };
     }));
     return withSpent;
+  });
+
+// Lightweight team list (id+name only) for use in filter dropdowns by staff users.
+export const listTeamsBasic = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdminOrStaff(context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data } = await supabaseAdmin.from("teams").select("id, name, active").order("name");
+    return data ?? [];
   });
 
 export const upsertTeam = createServerFn({ method: "POST" })
