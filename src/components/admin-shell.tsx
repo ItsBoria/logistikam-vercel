@@ -15,18 +15,24 @@ type NavItem = {
   label: string;
   icon: any;
   exact?: boolean;
-  staff?: boolean; // visible to staff role
 };
 
-const NAV: NavItem[] = [
-  { to: "/admin", label: "סקירה", icon: LayoutDashboard, exact: true, staff: true },
-  { to: "/admin/orders", label: "הזמנות", icon: ShoppingBag, staff: true },
-  { to: "/admin/products", label: "מוצרים", icon: Package, staff: true },
+const NAV_ADMIN: NavItem[] = [
+  { to: "/admin", label: "סקירה", icon: LayoutDashboard, exact: true },
+  { to: "/admin/orders", label: "הזמנות", icon: ShoppingBag },
+  { to: "/admin/products", label: "מוצרים", icon: Package },
   { to: "/admin/replacements", label: "החלפות", icon: Replace },
   { to: "/admin/replacement-inventory", label: "מלאי החלפות", icon: Boxes },
   { to: "/admin/teams", label: "צוותים", icon: Users },
   { to: "/admin/users", label: "מנהלים", icon: UserCog },
-  { to: "/admin/notifications", label: "התראות", icon: Bell, staff: true },
+  { to: "/admin/notifications", label: "התראות", icon: Bell },
+];
+
+const NAV_STAFF: NavItem[] = [
+  { to: "/admin", label: "סקירה", icon: LayoutDashboard, exact: true },
+  { to: "/admin/orders", label: "הזמנות", icon: ShoppingBag },
+  { to: "/admin/stock", label: "מלאי", icon: Package },
+  { to: "/admin/notifications", label: "התראות", icon: Bell },
 ];
 
 export function AdminShell({
@@ -84,7 +90,7 @@ export function AdminShell({
     );
   }
 
-  const visibleNav = roles.isAdmin ? NAV : NAV.filter((n) => n.staff);
+  const visibleNav = roles.isAdmin ? NAV_ADMIN : NAV_STAFF;
 
   return (
     <div className="min-h-screen bg-secondary/30">
