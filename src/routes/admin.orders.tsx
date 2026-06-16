@@ -1,19 +1,28 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AdminShell } from "@/components/admin-shell";
-import { listOrders, updateOrderStatus, listTeamsBasic, updateOrderItems, deleteOrder, deleteOldOrders } from "@/lib/admin.functions";
+import {
+  listOrders, updateOrderStatus, listTeamsBasic, updateOrderItems,
+  deleteOrder, deleteOldOrders, getOrderDetail, updateAdminNotes,
+} from "@/lib/admin.functions";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Download, Filter, X, Phone, User, Pencil, Plus, Minus, Trash2, Eraser } from "lucide-react";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import {
+  Download, Filter, X, Phone, User, Pencil, Plus, Minus, Trash2, Eraser,
+  Search, FileText, FileType, CheckCircle2, PackageCheck, Truck, History, StickyNote, Info, ChevronDown,
+} from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
+import { downloadOrderInvoicePDF, downloadOrderInvoiceDOCX } from "@/lib/invoice";
 
 export const Route = createFileRoute("/admin/orders")({
   ssr: false,
@@ -40,6 +49,16 @@ const STATUS_COLOR: Record<string, string> = {
   cancelled: "bg-destructive/15 text-destructive",
 };
 
+type Preset = "all" | "today" | "week" | "awaiting" | "ready";
+const FILTER_STORAGE_KEY = "admin-orders-filters-v1";
+
+function todayIso() {
+  const d = new Date(); d.setHours(0, 0, 0, 0); return d.toISOString().slice(0, 10);
+}
+function weekAgoIso() {
+  const d = new Date(); d.setDate(d.getDate() - 7); d.setHours(0, 0, 0, 0); return d.toISOString().slice(0, 10);
+}
+
 function OrdersPage() {
   const qc = useQueryClient();
   const listFn = useServerFn(listOrders);
@@ -48,12 +67,17 @@ function OrdersPage() {
   const updateItemsFn = useServerFn(updateOrderItems);
   const deleteOrderFn = useServerFn(deleteOrder);
   const deleteOldFn = useServerFn(deleteOldOrders);
+  const detailFn = useServerFn(getOrderDetail);
+  const notesFn = useServerFn(updateAdminNotes);
 
   const [teamId, setTeamId] = useState<string>("all");
   const [status, setStatus] = useState<string>("all");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [search, setSearch] = useState("");
+  const [preset, setPreset] = useState<Preset>("all");
   const [editing, setEditing] = useState<any>(null);
+  const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
   const [cleanupOpen, setCleanupOpen] = useState(false);
   const [cleanupBefore, setCleanupBefore] = useState(() => {
     const d = new Date(); d.setMonth(d.getMonth() - 3);
@@ -62,16 +86,44 @@ function OrdersPage() {
   const [cleanupOnlyDone, setCleanupOnlyDone] = useState(true);
   const [cleanupBusy, setCleanupBusy] = useState(false);
 
+  // Load saved filters once
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(FILTER_STORAGE_KEY);
+      if (raw) {
+        const f = JSON.parse(raw);
+        if (f.teamId) setTeamId(f.teamId);
+        if (f.status) setStatus(f.status);
+        if (f.from) setFrom(f.from);
+        if (f.to) setTo(f.to);
+      }
+    } catch {}
+  }, []);
+  // Persist
+  useEffect(() => {
+    localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify({ teamId, status, from, to }));
+  }, [teamId, status, from, to]);
+
   const { data: teams } = useQuery({ queryKey: ["admin-teams"], queryFn: () => teamsFn() });
   const { data: orders, isLoading } = useQuery({
-    queryKey: ["admin-orders", teamId, status, from, to],
+    queryKey: ["admin-orders", teamId, status, from, to, search],
     queryFn: () => listFn({ data: {
       team_id: teamId === "all" ? null : teamId,
       status: status === "all" ? null : status,
       from: from || null,
       to: to ? new Date(to + "T23:59:59").toISOString() : null,
+      search: search || null,
     } }),
   });
+
+  function applyPreset(p: Preset) {
+    setPreset(p);
+    if (p === "all") { setStatus("all"); setFrom(""); setTo(""); }
+    else if (p === "today") { setStatus("all"); setFrom(todayIso()); setTo(todayIso()); }
+    else if (p === "week") { setStatus("all"); setFrom(weekAgoIso()); setTo(todayIso()); }
+    else if (p === "awaiting") { setStatus("awaiting_approval"); setFrom(""); setTo(""); }
+    else if (p === "ready") { setStatus("ready"); setFrom(""); setTo(""); }
+  }
 
   async function changeStatus(id: string, s: string) {
     try {
@@ -86,11 +138,8 @@ function OrdersPage() {
       order_id: o.id,
       notes: o.notes ?? "",
       items: (o.order_items as any[]).map(it => ({
-        id: it.id,
-        product_id: it.product_id,
-        name: it.name,
-        price: Number(it.price),
-        quantity: it.quantity,
+        id: it.id, product_id: it.product_id, name: it.name,
+        price: Number(it.price), quantity: it.quantity,
       })),
     });
   }
@@ -101,10 +150,8 @@ function OrdersPage() {
       await updateItemsFn({ data: {
         order_id: editing.order_id,
         items: editing.items.map((it: any) => ({
-          product_id: it.product_id ?? null,
-          name: it.name,
-          price: Number(it.price),
-          quantity: Number(it.quantity),
+          product_id: it.product_id ?? null, name: it.name,
+          price: Number(it.price), quantity: Number(it.quantity),
         })),
         notes: editing.notes || null,
       } });
@@ -138,17 +185,11 @@ function OrdersPage() {
   function exportExcel() {
     if (!orders?.length) return;
     const rows = orders.flatMap((o: any) => (o.order_items as any[]).map(it => ({
-      "מס׳ הזמנה": o.id.slice(0, 8),
-      "תאריך": new Date(o.created_at).toLocaleString("he-IL"),
-      "צוות": o.teams?.name ?? "",
-      "סטטוס": STATUS_LABEL[o.status] ?? o.status,
-      "מזמין": o.ordered_by_name ?? "",
-      "טלפון": o.contact_phone ?? "",
-      "מוצר": it.name,
-      "מחיר": Number(it.price),
-      "כמות": it.quantity,
-      "סכום שורה": Number(it.price) * it.quantity,
-      "סה״כ הזמנה": Number(o.total),
+      "מס׳ הזמנה": o.id.slice(0, 8), "תאריך": new Date(o.created_at).toLocaleString("he-IL"),
+      "צוות": o.teams?.name ?? "", "סטטוס": STATUS_LABEL[o.status] ?? o.status,
+      "מזמין": o.ordered_by_name ?? "", "טלפון": o.contact_phone ?? "",
+      "מוצר": it.name, "מחיר": Number(it.price), "כמות": it.quantity,
+      "סכום שורה": Number(it.price) * it.quantity, "סה״כ הזמנה": Number(o.total),
       "הערות": o.notes ?? "",
     })));
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -158,10 +199,25 @@ function OrdersPage() {
     XLSX.writeFile(wb, `orders-${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
 
-  function resetFilters() { setTeamId("all"); setStatus("all"); setFrom(""); setTo(""); }
+  async function downloadInvoice(o: any, fmt: "pdf" | "docx") {
+    try {
+      if (fmt === "pdf") await downloadOrderInvoicePDF(o);
+      else await downloadOrderInvoiceDOCX(o);
+    } catch (e: any) { toast.error(e.message ?? "שגיאה בייצוא"); }
+  }
+
+  function resetFilters() { setPreset("all"); setTeamId("all"); setStatus("all"); setFrom(""); setTo(""); setSearch(""); }
 
   const totalSum = useMemo(() => (orders ?? []).reduce((s, o: any) => s + Number(o.total), 0), [orders]);
   const editTotal = useMemo(() => editing?.items.reduce((s: number, it: any) => s + Number(it.price) * Number(it.quantity), 0) ?? 0, [editing]);
+
+  function quickActionsFor(s: string): Array<{ label: string; to: string; icon: any; variant?: "default" | "outline" }> {
+    if (s === "pending" || s === "awaiting_approval") return [{ label: "אישור", to: "approved", icon: CheckCircle2, variant: "default" }];
+    if (s === "approved") return [{ label: "בהכנה", to: "preparing", icon: Truck, variant: "outline" }];
+    if (s === "preparing") return [{ label: "מוכן", to: "ready", icon: PackageCheck, variant: "default" }];
+    if (s === "ready") return [{ label: "הושלם", to: "completed", icon: CheckCircle2, variant: "default" }];
+    return [];
+  }
 
   return (
     <div className="space-y-4">
@@ -180,9 +236,22 @@ function OrdersPage() {
         </div>
       </div>
 
-      <Card className="p-4">
-        <div className="flex items-center gap-2 mb-3 text-sm text-muted-foreground"><Filter className="w-4 h-4" /> סינון</div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
+      <Card className="p-4 space-y-3 sticky top-2 z-10 bg-card/95 backdrop-blur">
+        <div className="flex items-center gap-2 flex-wrap">
+          {([
+            ["all", "הכל"], ["today", "היום"], ["week", "השבוע"],
+            ["awaiting", "ממתינות לאישור"], ["ready", "מוכנות לאיסוף"],
+          ] as Array<[Preset, string]>).map(([k, label]) => (
+            <Button key={k} size="sm" variant={preset === k ? "default" : "outline"} onClick={() => applyPreset(k)}>
+              {label}
+            </Button>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-3">
+          <div className="relative md:col-span-2">
+            <Search className="w-4 h-4 absolute right-2 top-2.5 text-muted-foreground pointer-events-none" />
+            <Input className="pr-8" placeholder="חפש לפי מס׳, צוות, מזמין, טלפון או מוצר" value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>
           <Select value={teamId} onValueChange={setTeamId}>
             <SelectTrigger><SelectValue placeholder="צוות" /></SelectTrigger>
             <SelectContent>
@@ -197,17 +266,23 @@ function OrdersPage() {
               {Object.entries(STATUS_LABEL).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-          <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-          <Button variant="outline" onClick={resetFilters}><X className="w-4 h-4 ml-2" /> נקה</Button>
+          <Input type="date" value={from} onChange={(e) => { setPreset("all"); setFrom(e.target.value); }} />
+          <Input type="date" value={to} onChange={(e) => { setPreset("all"); setTo(e.target.value); }} />
+        </div>
+        <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1"><Filter className="w-3 h-3" /> סינון נשמר אוטומטית בדפדפן</span>
+          <Button variant="ghost" size="sm" onClick={resetFilters}><X className="w-3 h-3 ml-1" /> נקה</Button>
         </div>
       </Card>
 
       {isLoading ? <Card className="p-12 text-center">טוען...</Card> :
         !orders?.length ? <Card className="p-12 text-center text-muted-foreground">אין הזמנות</Card> :
         <Accordion type="multiple" className="space-y-2">
-          {orders.map((o: any) => (
-            <AccordionItem key={o.id} value={o.id} className="border rounded-lg bg-card px-4">
+          {orders.map((o: any) => {
+            const ageH = (Date.now() - new Date(o.created_at).getTime()) / 3600000;
+            const stuck = (o.status === "awaiting_approval" && ageH > 24) || (o.status === "ready" && ageH > 48);
+            return (
+            <AccordionItem key={o.id} value={o.id} className={`border rounded-lg bg-card px-4 ${stuck ? "border-warning border-2" : ""}`}>
               <AccordionTrigger className="hover:no-underline">
                 <div className="flex-1 flex flex-wrap items-start justify-between gap-3 pr-2">
                   <div className="flex-1 min-w-[200px] text-right">
@@ -215,6 +290,8 @@ function OrdersPage() {
                       <span className="font-bold">{o.teams?.name}</span>
                       <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_COLOR[o.status]}`}>{STATUS_LABEL[o.status]}</span>
                       <span className="text-xs text-muted-foreground">#{o.id.slice(0, 8)}</span>
+                      {stuck && <span className="text-xs text-warning-foreground">⏱ תקועה</span>}
+                      {o.admin_notes && <span className="text-xs flex items-center gap-1 text-primary"><StickyNote className="w-3 h-3" /> הערת מנהל</span>}
                     </div>
                     <div className="text-xs text-muted-foreground mt-1">{new Date(o.created_at).toLocaleString("he-IL")}</div>
                     <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3 flex-wrap">
@@ -236,28 +313,68 @@ function OrdersPage() {
                       </div>
                     ))}
                   </div>
-                  {o.notes && <div className="text-sm bg-muted p-2 rounded">הערות: {o.notes}</div>}
+                  {o.notes && <div className="text-sm bg-muted p-2 rounded">הערות צוות: {o.notes}</div>}
+
                   <div className="flex items-center gap-2 flex-wrap">
+                    {/* Quick actions */}
+                    {quickActionsFor(o.status).map((qa) => (
+                      <Button key={qa.to} size="sm" variant={qa.variant ?? "default"} onClick={() => changeStatus(o.id, qa.to)}>
+                        <qa.icon className="w-4 h-4 ml-1" /> {qa.label}
+                      </Button>
+                    ))}
+                    {/* Status select */}
                     <Select value={o.status} onValueChange={(v) => changeStatus(o.id, v)}>
-                      <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="w-44 h-9"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {Object.entries(STATUS_LABEL).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
                       </SelectContent>
                     </Select>
+
+                    <Button variant="outline" size="sm" onClick={() => setDetailOrderId(o.id)}>
+                      <Info className="w-4 h-4 ml-1" /> פרטים
+                    </Button>
                     <Button variant="outline" size="sm" onClick={() => startEdit(o)}>
                       <Pencil className="w-4 h-4 ml-1" /> ערוך פריטים
                     </Button>
+
+                    {/* Invoice */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm">
+                          <Download className="w-4 h-4 ml-1" /> חשבונית <ChevronDown className="w-3 h-3 mr-1" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => downloadInvoice(o, "pdf")}>
+                          <FileText className="w-4 h-4 ml-2" /> PDF
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => downloadInvoice(o, "docx")}>
+                          <FileType className="w-4 h-4 ml-2" /> Word (DOCX)
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+
                     <Button variant="ghost" size="sm" onClick={() => removeOrder(o.id)} className="text-destructive hover:text-destructive">
-                      <Trash2 className="w-4 h-4 ml-1" /> מחק הזמנה
+                      <Trash2 className="w-4 h-4 ml-1" /> מחק
                     </Button>
                   </div>
                 </div>
               </AccordionContent>
             </AccordionItem>
-          ))}
+          );
+          })}
         </Accordion>
       }
 
+      {/* Detail drawer */}
+      <OrderDetailDrawer
+        orderId={detailOrderId}
+        onClose={() => setDetailOrderId(null)}
+        fetchFn={detailFn as any}
+        notesFn={notesFn as any}
+      />
+
+      {/* Edit dialog */}
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>עריכת הזמנה</DialogTitle></DialogHeader>
@@ -328,5 +445,119 @@ function OrdersPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function OrderDetailDrawer({ orderId, onClose, fetchFn, notesFn }: {
+  orderId: string | null; onClose: () => void;
+  fetchFn: (args: { data: { id: string } }) => Promise<any>;
+  notesFn: (args: { data: { id: string; admin_notes: string | null } }) => Promise<any>;
+}) {
+  const qc = useQueryClient();
+  const [noteDraft, setNoteDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const { data, isLoading } = useQuery({
+    queryKey: ["order-detail", orderId],
+    queryFn: () => fetchFn({ data: { id: orderId! } }),
+    enabled: !!orderId,
+  });
+
+  useEffect(() => {
+    if (data?.order) setNoteDraft(data.order.admin_notes ?? "");
+  }, [data?.order?.id]);
+
+  async function saveNote() {
+    if (!orderId) return;
+    setSaving(true);
+    try {
+      await notesFn({ data: { id: orderId, admin_notes: noteDraft || null } });
+      toast.success("ההערה נשמרה");
+      qc.invalidateQueries({ queryKey: ["admin-orders"] });
+      qc.invalidateQueries({ queryKey: ["order-detail", orderId] });
+    } catch (e: any) { toast.error(e.message); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Sheet open={!!orderId} onOpenChange={(o) => !o && onClose()}>
+      <SheetContent side="left" className="w-full sm:max-w-lg overflow-y-auto" dir="rtl">
+        <SheetHeader><SheetTitle>פרטי הזמנה</SheetTitle></SheetHeader>
+        {isLoading || !data ? (
+          <div className="py-10 text-center text-sm text-muted-foreground">טוען...</div>
+        ) : (
+          <div className="space-y-4 mt-4">
+            <Card className="p-3 space-y-1 text-sm">
+              <div className="flex items-center justify-between"><span className="text-muted-foreground">צוות</span><span className="font-bold">{data.order.teams?.name}</span></div>
+              <div className="flex items-center justify-between"><span className="text-muted-foreground">סטטוס</span>
+                <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_COLOR[data.order.status]}`}>{STATUS_LABEL[data.order.status] ?? data.order.status}</span>
+              </div>
+              <div className="flex items-center justify-between"><span className="text-muted-foreground">מס׳</span><span dir="ltr">#{data.order.id.slice(0, 8)}</span></div>
+              <div className="flex items-center justify-between"><span className="text-muted-foreground">נוצרה</span><span>{new Date(data.order.created_at).toLocaleString("he-IL")}</span></div>
+              <div className="flex items-center justify-between"><span className="text-muted-foreground">מזמין</span><span>{data.order.ordered_by_name}</span></div>
+              <div className="flex items-center justify-between"><span className="text-muted-foreground">טלפון</span><span dir="ltr">{data.order.contact_phone}</span></div>
+              <div className="flex items-center justify-between border-t pt-1 mt-1"><span className="text-muted-foreground">סה״כ</span><span className="font-bold">₪{Number(data.order.total).toFixed(2)}</span></div>
+            </Card>
+
+            {data.order.teams?.monthly_limit > 0 && (
+              <Card className="p-3 text-sm space-y-2">
+                <div className="flex justify-between"><span className="text-muted-foreground">תקציב חודשי של הצוות</span>
+                  <span>₪{Number(data.monthSpent).toFixed(0)} / ₪{Number(data.order.teams.monthly_limit).toFixed(0)}</span>
+                </div>
+                <div className="h-2 rounded bg-muted overflow-hidden">
+                  <div className="h-full bg-primary" style={{ width: `${Math.min(100, (data.monthSpent / data.order.teams.monthly_limit) * 100)}%` }} />
+                </div>
+              </Card>
+            )}
+
+            <Card className="p-3">
+              <h3 className="text-sm font-bold mb-2">פריטים</h3>
+              <div className="divide-y text-sm">
+                {(data.order.order_items as any[]).map((it) => (
+                  <div key={it.id} className="flex justify-between py-1.5">
+                    <span>{it.name} × {it.quantity}</span>
+                    <span dir="ltr">₪{(Number(it.price) * it.quantity).toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            <Card className="p-3 space-y-2">
+              <h3 className="text-sm font-bold flex items-center gap-2"><StickyNote className="w-4 h-4" /> הערה פנימית למנהלים</h3>
+              <p className="text-xs text-muted-foreground">לא נראית לצוות. שמורה רק לעיני הצוות הניהולי.</p>
+              <Textarea value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} rows={3} placeholder="לדוגמה: לקוח התקשר וביקש לעכב..." />
+              <Button size="sm" onClick={saveNote} disabled={saving}>{saving ? "שומר..." : "שמור הערה"}</Button>
+            </Card>
+
+            <Card className="p-3">
+              <h3 className="text-sm font-bold flex items-center gap-2 mb-3"><History className="w-4 h-4" /> ציר זמן סטטוס</h3>
+              {data.history.length === 0 ? (
+                <p className="text-xs text-muted-foreground">אין רשומות.</p>
+              ) : (
+                <ol className="space-y-2 text-sm">
+                  {data.history.map((h: any) => (
+                    <li key={h.id} className="flex items-start gap-2">
+                      <span className="mt-1.5 w-2 h-2 rounded-full bg-primary shrink-0" />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {h.from_status && <>
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] ${STATUS_COLOR[h.from_status] ?? ""}`}>{STATUS_LABEL[h.from_status] ?? h.from_status}</span>
+                            <span className="text-muted-foreground text-xs">→</span>
+                          </>}
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${STATUS_COLOR[h.to_status] ?? ""}`}>{STATUS_LABEL[h.to_status] ?? h.to_status}</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {new Date(h.created_at).toLocaleString("he-IL")}
+                          {h.changed_by_name && ` · ${h.changed_by_name}`}
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </Card>
+          </div>
+        )}
+      </SheetContent>
+    </Sheet>
   );
 }
