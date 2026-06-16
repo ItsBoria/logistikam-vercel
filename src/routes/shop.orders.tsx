@@ -269,6 +269,21 @@ function OrdersPage() {
                         <Button variant="outline" size="sm" onClick={() => handleReorder(order.id)}>
                           <RotateCcw className="ml-2 h-4 w-4" /> הזמן שוב
                         </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm">
+                              <Download className="ml-2 h-4 w-4" /> חשבונית <ChevronDown className="mr-1 h-3 w-3" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => downloadOrderInvoicePDF({ ...order, team_name: data.team.name }).catch((e) => toast.error(e.message ?? "שגיאה"))}>
+                              <FileText className="ml-2 h-4 w-4" /> PDF
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => downloadOrderInvoiceDOCX({ ...order, team_name: data.team.name }).catch((e) => toast.error(e.message ?? "שגיאה"))}>
+                              <FileType className="ml-2 h-4 w-4" /> Word (DOCX)
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
 
                     </div>
