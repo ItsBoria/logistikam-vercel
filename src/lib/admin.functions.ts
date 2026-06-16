@@ -496,6 +496,7 @@ export const listOrders = createServerFn({ method: "POST" })
     status: z.string().nullable().optional(),
     from: z.string().nullable().optional(),
     to: z.string().nullable().optional(),
+    search: z.string().max(200).nullable().optional(),
   }).parse(input))
   .handler(async ({ data, context }) => {
     await assertAdminOrStaff(context.userId);
@@ -507,7 +508,52 @@ export const listOrders = createServerFn({ method: "POST" })
     if (data.to) q = q.lte("created_at", data.to);
     const { data: orders, error } = await q;
     if (error) throw new Error(error.message);
-    return orders ?? [];
+    let rows = orders ?? [];
+    const search = (data.search ?? "").trim().toLowerCase();
+    if (search) {
+      rows = rows.filter((o: any) => {
+        if (o.id.toLowerCase().startsWith(search)) return true;
+        if ((o.teams?.name ?? "").toLowerCase().includes(search)) return true;
+        if ((o.ordered_by_name ?? "").toLowerCase().includes(search)) return true;
+        if ((o.contact_phone ?? "").toLowerCase().includes(search)) return true;
+        if ((o.order_items as any[])?.some((it) => (it.name ?? "").toLowerCase().includes(search))) return true;
+        return false;
+      });
+    }
+    return rows;
+  });
+
+export const getOrderDetail = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdminOrStaff(context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: order, error } = await supabaseAdmin
+      .from("orders").select("*, teams(id, name, monthly_limit), order_items(*)").eq("id", data.id).single();
+    if (error || !order) throw new Error(error?.message || "הזמנה לא נמצאה");
+    const { data: history } = await supabaseAdmin
+      .from("order_status_history").select("*").eq("order_id", data.id).order("created_at", { ascending: true });
+    let monthSpent = 0;
+    if (order.team_id) {
+      const { data: spent } = await supabaseAdmin.rpc("team_month_spent", { _team_id: order.team_id });
+      monthSpent = Number(spent ?? 0);
+    }
+    return { order, history: history ?? [], monthSpent };
+  });
+
+export const updateAdminNotes = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({
+    id: z.string().uuid(),
+    admin_notes: z.string().max(2000).nullable(),
+  }).parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdminOrStaff(context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin.from("orders").update({ admin_notes: data.admin_notes }).eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
   });
 
 export const updateOrderStatus = createServerFn({ method: "POST" })
