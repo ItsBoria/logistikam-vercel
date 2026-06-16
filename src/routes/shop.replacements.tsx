@@ -2,7 +2,13 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, useMemo } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
-import { getReplacementShop, submitReplacementRequest, getTeamReplacementRequests } from "@/lib/replacements.functions";
+import {
+  getReplacementShop,
+  submitReplacementRequest,
+  getTeamReplacementRequests,
+  deleteReplacementRequest,
+  editReplacementRequest,
+} from "@/lib/replacements.functions";
 import { getTeamSession } from "@/lib/team-session";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ShoppingCart, Plus, Minus, Loader2, Trash2, Replace } from "lucide-react";
+import { ShoppingCart, Plus, Minus, Loader2, Trash2, Replace, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { BottomTabBar } from "@/components/bottom-tab-bar";
 
