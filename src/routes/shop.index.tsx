@@ -294,3 +294,29 @@ function Shop() {
     </div>
   );
 }
+
+function AdminActingBanner() {
+  const navigate = useNavigate();
+  const [acting, setActing] = useState(false);
+  useEffect(() => {
+    try {
+      setActing(localStorage.getItem("admin_acting_team_v1") === "1");
+    } catch {}
+  }, []);
+  if (!acting) return null;
+  return (
+    <div className="bg-primary text-primary-foreground text-sm px-4 py-2 flex items-center justify-center gap-3">
+      <span>מצב צפייה כצוות (בדיקה)</span>
+      <button
+        className="underline text-xs"
+        onClick={() => {
+          localStorage.removeItem("admin_acting_team_v1");
+          localStorage.removeItem("team_session_v1");
+          navigate({ to: "/admin" });
+        }}
+      >
+        חזרה לפאנל ניהול
+      </button>
+    </div>
+  );
+}
