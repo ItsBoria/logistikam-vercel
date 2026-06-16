@@ -69,7 +69,7 @@ function DashboardPage() {
     return <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
   }
 
-  const { kpis, topTeams, recentOrders, lowStock } = data;
+  const { kpis, topTeams, recentOrders, lowStock, stuckOrders } = data;
 
   async function changeStatus(id: string, status: string) {
     try {
