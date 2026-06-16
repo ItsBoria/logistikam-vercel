@@ -119,6 +119,7 @@ export function AdminShell({
             </nav>
           </div>
           <div className="flex items-center gap-2">
+            {roles.isAdmin && <ViewShopAsPicker />}
             <span className="text-xs text-muted-foreground hidden sm:inline">{session.user.email}</span>
             {!roles.isAdmin && roles.isStaff && (
               <span className="text-xs px-2 py-0.5 rounded bg-primary/15 text-primary hidden sm:inline">צוות מחסן</span>
