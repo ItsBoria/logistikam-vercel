@@ -10,6 +10,7 @@ import {
   updateAdminUserRole,
   searchRegisteredUsers,
 } from "@/lib/admin.functions";
+import { listActiveTeams, setUserTeamAdmin } from "@/lib/membership.functions";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
