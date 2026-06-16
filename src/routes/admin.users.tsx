@@ -37,17 +37,9 @@ function Admins() {
 
   const { data: admins } = useQuery({ queryKey: ["admin-users"], queryFn: () => listFn() });
   const [query, setQuery] = useState("");
-  const [debounced, setDebounced] = useState("");
-  // debounce
-  useState(() => {
-    const id = setInterval(() => setDebounced(query), 300);
-    return () => clearInterval(id);
-  });
-  // simpler debounce via setTimeout effect
-  // eslint-disable-next-line react-hooks/rules-of-hooks
   const { data: searchResults, isFetching: searching } = useQuery({
-    queryKey: ["registered-users", debounced],
-    queryFn: () => searchFn({ data: { query: debounced } }),
+    queryKey: ["registered-users", query],
+    queryFn: () => searchFn({ data: { query } }),
   });
 
   const [creating, setCreating] = useState(false);
@@ -56,11 +48,6 @@ function Admins() {
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<"admin" | "staff">("admin");
 
-  // debounce effect
-  // (kept simple)
-  if (typeof window !== "undefined") {
-    // no-op
-  }
 
   async function create() {
     try {
