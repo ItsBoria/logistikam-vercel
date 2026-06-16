@@ -280,6 +280,49 @@ function ReplacementsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>עריכת בקשת החלפה</DialogTitle></DialogHeader>
+          <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+            {editing && ((editing.replacement_request_items ?? []) as any[]).map((it) => {
+              if (!it.replacement_product_id) return null;
+              const qty = editQty[it.replacement_product_id] ?? 0;
+              return (
+                <div key={it.id} className="flex items-center justify-between gap-2 border-b pb-2">
+                  <div className="flex-1 min-w-0 font-medium text-sm truncate">{it.name}</div>
+                  {qty === 0 ? (
+                    <Button variant="outline" size="sm" onClick={() => bumpEdit(it.replacement_product_id, 1)}>
+                      <Plus className="w-4 h-4" />
+                    </Button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => bumpEdit(it.replacement_product_id, -1)}>
+                        <Minus className="w-4 h-4" />
+                      </Button>
+                      <span className="font-bold tabular-nums w-6 text-center">{qty}</span>
+                      <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => bumpEdit(it.replacement_product_id, 1)}>
+                        <Plus className="w-4 h-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => setEditQty((m) => { const n = { ...m }; delete n[it.replacement_product_id]; return n; })}>
+                        <Trash2 className="w-4 h-4 text-destructive" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-xs text-muted-foreground">ניתן לשנות כמויות או להסיר פריטים. עריכה אפשרית רק כל עוד הבקשה בהכנה.</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditing(null)}>ביטול</Button>
+            <Button onClick={saveEdit} disabled={savingEdit}>
+              {savingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : "שמור שינויים"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
+
