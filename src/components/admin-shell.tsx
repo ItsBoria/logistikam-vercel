@@ -54,10 +54,7 @@ export function AdminShell({
   const { data: roles, loading: rolesLoading } = useAdminRoles();
   const path = useRouterState({ select: (s) => s.location.pathname });
 
-  useEffect(() => {
-    if (session) setTeamSession(null);
-  }, [session]);
-
+  // Don't auto-clear team session here: admin uses it for "view shop as".
   useEffect(() => {
     if (!loading && !session) navigate({ to: "/", replace: true });
   }, [loading, session, navigate]);
