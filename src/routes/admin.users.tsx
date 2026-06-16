@@ -10,6 +10,7 @@ import {
   updateAdminUserRole,
   searchRegisteredUsers,
 } from "@/lib/admin.functions";
+import { listActiveTeams, setUserTeamAdmin } from "@/lib/membership.functions";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -34,8 +35,11 @@ function Admins() {
   const deleteFn = useServerFn(deleteAdminUser);
   const roleFn = useServerFn(updateAdminUserRole);
   const searchFn = useServerFn(searchRegisteredUsers);
+  const teamsFn = useServerFn(listActiveTeams);
+  const setTeamFn = useServerFn(setUserTeamAdmin);
 
   const { data: admins } = useQuery({ queryKey: ["admin-users"], queryFn: () => listFn() });
+  const { data: teams } = useQuery({ queryKey: ["active-teams-admin"], queryFn: () => teamsFn() });
   const [query, setQuery] = useState("");
   const { data: searchResults, isFetching: searching } = useQuery({
     queryKey: ["registered-users", query],
@@ -75,6 +79,15 @@ function Admins() {
       qc.invalidateQueries({ queryKey: ["registered-users"] });
     } catch (e: any) { toast.error(e.message); }
   }
+  async function changeTeam(userId: string, value: string) {
+    try {
+      await setTeamFn({ data: { user_id: userId, team_id: value === "none" ? null : value } });
+      toast.success("הצוות עודכן");
+      qc.invalidateQueries({ queryKey: ["admin-users"] });
+      qc.invalidateQueries({ queryKey: ["registered-users"] });
+    } catch (e: any) { toast.error(e.message); }
+  }
+
 
   return (
     <div className="space-y-4">
@@ -175,18 +188,32 @@ function Admins() {
                         </span>
                       </div>
                       <div className="text-xs text-muted-foreground truncate" dir="ltr">{u.email}</div>
+                      {u.team_name && (
+                        <div className="text-xs text-muted-foreground mt-0.5">צוות: {u.team_name}</div>
+                      )}
                     </div>
                   </div>
-                  {!isMe ? (
-                    <Select value={u.currentRole} onValueChange={(v) => changeRole(u.id, v as any)}>
-                      <SelectTrigger className="w-36 h-9 text-xs"><SelectValue /></SelectTrigger>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Select value={u.team_id ?? "none"} onValueChange={(v) => changeTeam(u.id, v)}>
+                      <SelectTrigger className="w-40 h-9 text-xs"><SelectValue placeholder="צוות" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="admin">מנהל</SelectItem>
-                        <SelectItem value="staff">צוות מחסן</SelectItem>
-                        <SelectItem value="customer">לקוח</SelectItem>
+                        <SelectItem value="none">ללא צוות</SelectItem>
+                        {teams?.map((t: any) => (
+                          <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
-                  ) : <span className="text-xs text-muted-foreground">(אתה)</span>}
+                    {!isMe ? (
+                      <Select value={u.currentRole} onValueChange={(v) => changeRole(u.id, v as any)}>
+                        <SelectTrigger className="w-36 h-9 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="admin">מנהל</SelectItem>
+                          <SelectItem value="staff">צוות מחסן</SelectItem>
+                          <SelectItem value="customer">לקוח</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : <span className="text-xs text-muted-foreground">(אתה)</span>}
+                  </div>
                 </div>
               );
             })}
