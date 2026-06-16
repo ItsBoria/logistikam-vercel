@@ -139,6 +139,7 @@ function Shop() {
 
   return (
     <div className="min-h-screen bg-secondary/30">
+      <AdminActingBanner />
       <header className="bg-card border-b sticky top-0 z-30 backdrop-blur">
         <div className="max-w-3xl mx-auto px-4 pt-5 pb-4 text-center">
           <BrandLogo size={56} className="mx-auto mb-2 rounded-2xl drop-shadow" />
