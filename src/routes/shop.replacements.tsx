@@ -47,6 +47,8 @@ function ReplacementsPage() {
   const fetchShop = useServerFn(getReplacementShop);
   const submitFn = useServerFn(submitReplacementRequest);
   const fetchHistory = useServerFn(getTeamReplacementRequests);
+  const deleteReqFn = useServerFn(deleteReplacementRequest);
+  const editReqFn = useServerFn(editReplacementRequest);
 
   const { data, isLoading, refetch } = useQuery({
     enabled: !!session,
