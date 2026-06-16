@@ -1,14 +1,18 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
+import { useServerFn } from "@tanstack/react-start";
+import { useQuery } from "@tanstack/react-query";
 import { useSupabaseSession } from "@/hooks/use-supabase-session";
 import { useAdminRoles } from "@/hooks/use-admin-roles";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { setTeamSession } from "@/lib/team-session";
+import { setTeamSession, setAdminActing } from "@/lib/team-session";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { listActiveTeams, getTeamContextById } from "@/lib/membership.functions";
 import { AdminBottomTabBar } from "@/components/admin-bottom-tab-bar";
 import {
   LogOut, Package, Users, ShoppingBag, UserCog, Loader2,
-  LayoutDashboard, Replace, Boxes, Bell,
+  LayoutDashboard, Replace, Boxes, Bell, Eye,
 } from "lucide-react";
 
 
@@ -50,10 +54,7 @@ export function AdminShell({
   const { data: roles, loading: rolesLoading } = useAdminRoles();
   const path = useRouterState({ select: (s) => s.location.pathname });
 
-  useEffect(() => {
-    if (session) setTeamSession(null);
-  }, [session]);
-
+  // Don't auto-clear team session here: admin uses it for "view shop as".
   useEffect(() => {
     if (!loading && !session) navigate({ to: "/", replace: true });
   }, [loading, session, navigate]);
@@ -118,6 +119,7 @@ export function AdminShell({
             </nav>
           </div>
           <div className="flex items-center gap-2">
+            {roles.isAdmin && <ViewShopAsPicker />}
             <span className="text-xs text-muted-foreground hidden sm:inline">{session.user.email}</span>
             {!roles.isAdmin && roles.isStaff && (
               <span className="text-xs px-2 py-0.5 rounded bg-primary/15 text-primary hidden sm:inline">צוות מחסן</span>
@@ -149,5 +151,38 @@ export function AdminShell({
       <main className="max-w-7xl mx-auto p-4 pb-20">{children}</main>
       <AdminBottomTabBar role={roles.isAdmin ? "admin" : "staff"} />
     </div>
+  );
+}
+
+function ViewShopAsPicker() {
+  const navigate = useNavigate();
+  const listFn = useServerFn(listActiveTeams);
+  const ctxFn = useServerFn(getTeamContextById);
+  const { data: teams } = useQuery({ queryKey: ["active-teams"], queryFn: () => listFn() });
+
+  async function onPick(teamId: string) {
+    try {
+      const ctx = await ctxFn({ data: { team_id: teamId } });
+      if (!ctx) return;
+      setTeamSession(ctx);
+      setAdminActing(true);
+      navigate({ to: "/shop" });
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  return (
+    <Select onValueChange={onPick}>
+      <SelectTrigger className="h-8 w-[180px] text-xs">
+        <Eye className="w-3.5 h-3.5 ml-1" />
+        <SelectValue placeholder="צפייה כצוות..." />
+      </SelectTrigger>
+      <SelectContent>
+        {(teams ?? []).map((t: any) => (
+          <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }

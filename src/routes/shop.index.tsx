@@ -139,6 +139,7 @@ function Shop() {
 
   return (
     <div className="min-h-screen bg-secondary/30">
+      <AdminActingBanner />
       <header className="bg-card border-b sticky top-0 z-30 backdrop-blur">
         <div className="max-w-3xl mx-auto px-4 pt-5 pb-4 text-center">
           <BrandLogo size={56} className="mx-auto mb-2 rounded-2xl drop-shadow" />
@@ -290,6 +291,32 @@ function Shop() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function AdminActingBanner() {
+  const navigate = useNavigate();
+  const [acting, setActing] = useState(false);
+  useEffect(() => {
+    try {
+      setActing(localStorage.getItem("admin_acting_team_v1") === "1");
+    } catch {}
+  }, []);
+  if (!acting) return null;
+  return (
+    <div className="bg-primary text-primary-foreground text-sm px-4 py-2 flex items-center justify-center gap-3">
+      <span>מצב צפייה כצוות (בדיקה)</span>
+      <button
+        className="underline text-xs"
+        onClick={() => {
+          localStorage.removeItem("admin_acting_team_v1");
+          localStorage.removeItem("team_session_v1");
+          navigate({ to: "/admin" });
+        }}
+      >
+        חזרה לפאנל ניהול
+      </button>
     </div>
   );
 }
