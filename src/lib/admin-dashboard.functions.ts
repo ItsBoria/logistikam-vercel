@@ -32,22 +32,34 @@ export const getAdminDashboard = createServerFn({ method: "GET" })
       .from("app_settings").select("value").eq("key", "default_low_stock_threshold").maybeSingle();
     const defaultThreshold = Number((settingRow?.value as any) ?? 5);
 
+    const stuckAwaitingIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const stuckReadyIso = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+
     const [
       { count: pendingCount },
       { count: awaitingCount },
       { count: pendingReplacementsCount },
+      { count: stuckAwaitingCount },
+      { count: stuckReadyCount },
       monthOrdersRes,
       teamsRes,
       recentOrdersRes,
       activeProductsRes,
+      stuckOrdersRes,
     ] = await Promise.all([
       supabaseAdmin.from("orders").select("*", { count: "exact", head: true }).eq("status", "pending"),
       supabaseAdmin.from("orders").select("*", { count: "exact", head: true }).eq("status", "awaiting_approval"),
       supabaseAdmin.from("replacement_requests").select("*", { count: "exact", head: true }).in("status", ["preparing","ready"]),
+      supabaseAdmin.from("orders").select("*", { count: "exact", head: true }).eq("status", "awaiting_approval").lt("created_at", stuckAwaitingIso),
+      supabaseAdmin.from("orders").select("*", { count: "exact", head: true }).eq("status", "ready").lt("created_at", stuckReadyIso),
       supabaseAdmin.from("orders").select("id, total, team_id, status, created_at").gte("created_at", monthIso),
       supabaseAdmin.from("teams").select("id, name, monthly_limit, active").eq("active", true).order("name"),
       supabaseAdmin.from("orders").select("id, status, total, created_at, ordered_by_name, teams(name)").order("created_at", { ascending: false }).limit(5),
       supabaseAdmin.from("products").select("id, name, stock, low_stock_threshold").eq("active", true),
+      supabaseAdmin.from("orders")
+        .select("id, status, total, created_at, ordered_by_name, teams(name)")
+        .or(`and(status.eq.awaiting_approval,created_at.lt.${stuckAwaitingIso}),and(status.eq.ready,created_at.lt.${stuckReadyIso})`)
+        .order("created_at", { ascending: true }).limit(10),
     ]);
 
     const monthOrders = monthOrdersRes.data ?? [];
@@ -79,6 +91,7 @@ export const getAdminDashboard = createServerFn({ method: "GET" })
       const pct = limit > 0 ? Math.min(999, Math.round((spent / limit) * 100)) : 0;
       return { id: t.id, name: t.name, monthly_limit: limit, spent, pct };
     }).sort((a, b) => b.spent - a.spent);
+    const overBudgetCount = teamStats.filter(t => t.monthly_limit > 0 && t.pct >= 100).length;
 
     return {
       kpis: {
@@ -89,11 +102,14 @@ export const getAdminDashboard = createServerFn({ method: "GET" })
         monthRevenue,
         activeTeams: teams.length,
         lowStock: lowStockCount,
+        stuck: (stuckAwaitingCount ?? 0) + (stuckReadyCount ?? 0),
+        overBudget: overBudgetCount,
       },
       defaultLowStockThreshold: defaultThreshold,
       topTeams: teamStats.slice(0, 5),
       teamStats,
       recentOrders: recentOrdersRes.data ?? [],
+      stuckOrders: stuckOrdersRes.data ?? [],
       lowStock,
     };
   });

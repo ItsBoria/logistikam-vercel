@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-r
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowRight, ClipboardList, Loader2, Phone, User, RotateCcw, Pencil, X, Plus, Minus, Trash2 } from "lucide-react";
+import { ArrowRight, ClipboardList, Loader2, Phone, User, RotateCcw, Pencil, X, Plus, Minus, Trash2, Download, FileText, FileType, ChevronDown } from "lucide-react";
 import { getTeamOrders, repeatOrder, cancelOrder, editOrder } from "@/lib/team.functions";
 import { getTeamSession } from "@/lib/team-session";
 import { formatCurrency, VAT_LABEL } from "@/lib/pricing";
@@ -10,8 +10,10 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { BottomTabBar } from "@/components/bottom-tab-bar";
+import { downloadOrderInvoicePDF, downloadOrderInvoiceDOCX } from "@/lib/invoice";
 
 const EDITABLE_ORDER_STATUSES = new Set(["pending", "awaiting_approval"]);
 
@@ -267,6 +269,21 @@ function OrdersPage() {
                         <Button variant="outline" size="sm" onClick={() => handleReorder(order.id)}>
                           <RotateCcw className="ml-2 h-4 w-4" /> הזמן שוב
                         </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm">
+                              <Download className="ml-2 h-4 w-4" /> חשבונית <ChevronDown className="mr-1 h-3 w-3" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => downloadOrderInvoicePDF({ ...order, team_name: data.team.name }).catch((e) => toast.error(e.message ?? "שגיאה"))}>
+                              <FileText className="ml-2 h-4 w-4" /> PDF
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => downloadOrderInvoiceDOCX({ ...order, team_name: data.team.name }).catch((e) => toast.error(e.message ?? "שגיאה"))}>
+                              <FileType className="ml-2 h-4 w-4" /> Word (DOCX)
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
 
                     </div>
