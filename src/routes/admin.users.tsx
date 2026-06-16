@@ -188,18 +188,32 @@ function Admins() {
                         </span>
                       </div>
                       <div className="text-xs text-muted-foreground truncate" dir="ltr">{u.email}</div>
+                      {u.team_name && (
+                        <div className="text-xs text-muted-foreground mt-0.5">צוות: {u.team_name}</div>
+                      )}
                     </div>
                   </div>
-                  {!isMe ? (
-                    <Select value={u.currentRole} onValueChange={(v) => changeRole(u.id, v as any)}>
-                      <SelectTrigger className="w-36 h-9 text-xs"><SelectValue /></SelectTrigger>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Select value={u.team_id ?? "none"} onValueChange={(v) => changeTeam(u.id, v)}>
+                      <SelectTrigger className="w-40 h-9 text-xs"><SelectValue placeholder="צוות" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="admin">מנהל</SelectItem>
-                        <SelectItem value="staff">צוות מחסן</SelectItem>
-                        <SelectItem value="customer">לקוח</SelectItem>
+                        <SelectItem value="none">ללא צוות</SelectItem>
+                        {teams?.map((t: any) => (
+                          <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
-                  ) : <span className="text-xs text-muted-foreground">(אתה)</span>}
+                    {!isMe ? (
+                      <Select value={u.currentRole} onValueChange={(v) => changeRole(u.id, v as any)}>
+                        <SelectTrigger className="w-36 h-9 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="admin">מנהל</SelectItem>
+                          <SelectItem value="staff">צוות מחסן</SelectItem>
+                          <SelectItem value="customer">לקוח</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : <span className="text-xs text-muted-foreground">(אתה)</span>}
+                  </div>
                 </div>
               );
             })}
