@@ -1,14 +1,18 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
+import { useServerFn } from "@tanstack/react-start";
+import { useQuery } from "@tanstack/react-query";
 import { useSupabaseSession } from "@/hooks/use-supabase-session";
 import { useAdminRoles } from "@/hooks/use-admin-roles";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { setTeamSession } from "@/lib/team-session";
+import { setTeamSession, setAdminActing } from "@/lib/team-session";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { listActiveTeams, getTeamContextById } from "@/lib/membership.functions";
 import { AdminBottomTabBar } from "@/components/admin-bottom-tab-bar";
 import {
   LogOut, Package, Users, ShoppingBag, UserCog, Loader2,
-  LayoutDashboard, Replace, Boxes, Bell,
+  LayoutDashboard, Replace, Boxes, Bell, Eye,
 } from "lucide-react";
 
 
