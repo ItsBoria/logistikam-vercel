@@ -158,11 +158,11 @@ function Calendar() {
   }
 
   async function exportPdf() {
-    if (!data) return;
+    if (!data?.week) return;
     try { await downloadWeeklyPDF(data.week, data.missions); } catch (e: any) { toast.error(e.message); }
   }
   async function exportDocx() {
-    if (!data) return;
+    if (!data?.week) return;
     try { await downloadWeeklyDOCX(data.week, data.missions); } catch (e: any) { toast.error(e.message); }
   }
 
