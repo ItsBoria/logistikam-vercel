@@ -91,6 +91,14 @@ function Admins() {
       qc.invalidateQueries({ queryKey: ["registered-users"] });
     } catch (e: any) { toast.error(e.message); }
   }
+  async function toggleApprover(userId: string, val: boolean) {
+    try {
+      await approverFn({ data: { user_id: userId, is_approver: val } });
+      toast.success(val ? "סומן כמאשר" : "הוסר סימון מאשר");
+      qc.invalidateQueries({ queryKey: ["admin-users"] });
+      qc.invalidateQueries({ queryKey: ["calendar-admins"] });
+    } catch (e: any) { toast.error(e.message); }
+  }
 
 
   return (
