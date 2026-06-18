@@ -179,9 +179,25 @@ function Calendar() {
           <h1 className="text-2xl font-bold">תכנית שבועית</h1>
           <p className="text-sm text-muted-foreground">
             שבוע {week} · {range.start.toLocaleDateString("he-IL")} – {range.end.toLocaleDateString("he-IL")} · {year}
+            {ownerId && ownerId !== myId && data?.is_owner === false && (
+              <> · <span className="text-amber-600">צפייה בלוח של מנהל אחר</span></>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {admins && admins.length > 0 && (
+            <Select value={ownerId} onValueChange={setOwnerId}>
+              <SelectTrigger className="h-9 w-48 text-xs"><SelectValue placeholder="בחר מנהל" /></SelectTrigger>
+              <SelectContent>
+                {admins.map((a) => (
+                  <SelectItem key={a.id} value={a.id}>
+                    {a.id === myId ? "הלוח שלי" : a.name}
+                    {a.is_approver ? " ⭐" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <Button variant="outline" size="sm" onClick={() => step(-1)}><ChevronRight className="w-4 h-4" /></Button>
           <Button variant="outline" size="sm" onClick={goToday}>השבוע</Button>
           <Button variant="outline" size="sm" onClick={() => step(1)}><ChevronLeft className="w-4 h-4" /></Button>
@@ -190,7 +206,7 @@ function Calendar() {
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button size="sm"><FileText className="w-4 h-4 ml-1" />ייצוא</Button>
+              <Button size="sm" disabled={!data?.week}><FileText className="w-4 h-4 ml-1" />ייצוא</Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent>
               <DropdownMenuItem onClick={exportPdf}><FileText className="w-4 h-4 ml-2" />PDF</DropdownMenuItem>
