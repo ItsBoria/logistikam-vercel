@@ -18,10 +18,12 @@ import {
 import { toast } from "sonner";
 import {
   getMissionWeek, upsertMission, deleteMission, toggleMissionDone,
-  updateWeekNotes, signMissionWeek, reopenMissionWeek,
+  updateWeekNotes, signMissionWeek, reopenMissionWeek, listCalendarAdmins,
   type MissionRow,
 } from "@/lib/missions.functions";
 import { downloadWeeklyPDF, downloadWeeklyDOCX, isoWeekToRange } from "@/lib/weekly-export";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useSupabaseSession } from "@/hooks/use-supabase-session";
 
 export const Route = createFileRoute("/admin/calendar")({
   ssr: false,
