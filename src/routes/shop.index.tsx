@@ -227,21 +227,17 @@ function Shop() {
             })}
           </div>
         )}
-        <div className="h-20 sm:hidden" aria-hidden />
+        <div className="h-24 sm:hidden" aria-hidden />
       </main>
 
-      {/* Sticky checkout bar (mobile) — sits above bottom tab bar */}
-      {itemCount > 0 && (
-        <div className="sm:hidden fixed inset-x-0 z-50 bg-card border-t shadow-lg p-3 flex items-center gap-3" style={{ bottom: "calc(4rem + env(safe-area-inset-bottom))" }}>
-          <div className="flex-1">
-            <div className="text-xs text-muted-foreground">סל: {itemCount} פריטים</div>
-            <div className="font-bold text-lg">{formatCurrency(total)}</div>
-          </div>
-          <Button className="h-12 px-6 text-base" onClick={() => setCheckout(true)}>
-            <ShoppingCart className="w-5 h-5 ml-2" /> מעבר לתשלום
-          </Button>
-        </div>
-      )}
+      <CartBudgetPill
+        itemCount={itemCount}
+        total={total}
+        spent={spent}
+        limit={limit}
+        willExceed={willExceed}
+        onOpen={() => itemCount > 0 && setCheckout(true)}
+      />
 
       <BottomTabBar pin={session!.pin} />
 
