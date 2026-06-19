@@ -50,9 +50,6 @@ function addWeeks(year: number, week: number, delta: number): { year: number; we
   return getISOWeek(moved);
 }
 
-function fmtDateInput(d: Date) {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
-}
 
 function Calendar() {
   const qc = useQueryClient();
