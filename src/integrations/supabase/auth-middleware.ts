@@ -16,15 +16,19 @@ function readCookie(header: string | null, name: string) {
 
 export const requireSupabaseAuth = createMiddleware({ type: "function" }).server(
   async ({ next }) => {
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const publishableKey = process.env.SUPABASE_PUBLISHABLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const publishableKey =
+      process.env.SUPABASE_PUBLISHABLE_KEY ||
+      process.env.SUPABASE_ANON_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     if (!supabaseUrl || !publishableKey) {
       const missing = [
-        ...(!supabaseUrl ? ["SUPABASE_URL"] : []),
-        ...(!publishableKey ? ["SUPABASE_PUBLISHABLE_KEY"] : []),
+        ...(!supabaseUrl ? ["SUPABASE_URL / NEXT_PUBLIC_SUPABASE_URL"] : []),
+        ...(!publishableKey ? ["SUPABASE_PUBLISHABLE_KEY / SUPABASE_ANON_KEY"] : []),
       ];
-      const message = `Missing Supabase environment variable(s): ${missing.join(", ")}. Configure them in Vercel.`;
+      const message = `Missing Supabase environment variable(s): ${missing.join(", ")}. Configure the Supabase integration in Vercel.`;
       console.error(`[Supabase] ${message}`);
       throw new Error(message);
     }
