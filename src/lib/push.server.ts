@@ -19,16 +19,15 @@ function ensureConfigured(): { ok: boolean; error?: string } {
   if (configError) return { ok: false, error: configError };
   const pub = (process.env.VAPID_PUBLIC_KEY || "").trim();
   const priv = (process.env.VAPID_PRIVATE_KEY || "").trim();
-  let subject = (process.env.VAPID_SUBJECT || "").trim();
+  const subject = (process.env.VAPID_SUBJECT || "").trim();
 
   if (!pub || !priv) {
     configError = "VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY לא הוגדרו בשרת";
     return { ok: false, error: configError };
   }
   if (!isValidSubject(subject)) {
-    // Fallback to a safe default so push isn't blocked by a bad secret value.
-    console.warn(`[push] VAPID_SUBJECT invalid (${JSON.stringify(subject)}), falling back to mailto:admin@logistikam.lovable.app`);
-    subject = "mailto:admin@logistikam.lovable.app";
+    configError = "VAPID_SUBJECT חייב להיות כתובת mailto: או https:// תקינה";
+    return { ok: false, error: configError };
   }
   try {
     webpush.setVapidDetails(subject, pub, priv);
