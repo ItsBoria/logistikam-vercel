@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Plus, Minus, AlertTriangle, Loader2, Trash2 } from "lucide-react";
 import { SearchInput } from "@/components/ui/search-input";
-import { CartBudgetPill } from "@/components/cart-budget-pill";
+import { useCart } from "@/lib/cart-context";
 import { useHideOnScroll } from "@/hooks/use-scroll-direction";
 import { toast } from "sonner";
 
