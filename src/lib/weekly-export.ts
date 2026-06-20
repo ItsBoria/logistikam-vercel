@@ -66,11 +66,11 @@ function rtlText(pdf: Pdf, str: string, xRight: number, y: number, maxW?: number
     const lines = pdf.splitTextToSize(str, maxW) as string[];
     lines.forEach((ln, i) => {
       pdf.text(ln, xRight, y + i * (pdf.getLineHeight() / pdf.internal.scaleFactor), {
-        align: "right", isInputRtl: true,
+        align: "right",
       } as any);
     });
   } else {
-    pdf.text(str, xRight, y, { align: "right", isInputRtl: true } as any);
+    pdf.text(str, xRight, y, { align: "right" } as any);
   }
 }
 
@@ -97,16 +97,16 @@ export async function downloadWeeklyPDF(
 
   // --- Header (centered) ---
   pdf.setFont("Heebo", "bold"); pdf.setFontSize(20);
-  pdf.text(brandName, pageW / 2, margin + 14, { align: "center", isInputRtl: true } as any);
+  pdf.text(brandName, pageW / 2, margin + 14, { align: "center" } as any);
   pdf.setFontSize(13);
   pdf.text(`שבוע ${week.week} | ${monthName} ${week.year}`, pageW / 2, margin + 34, {
-    align: "center", isInputRtl: true,
+    align: "center",
   } as any);
 
   // optional quote line (per the paper form)
   pdf.setFont("Heebo", "normal"); pdf.setFontSize(8); pdf.setTextColor(110);
   pdf.text(`״ובחצי הלילה הם קמו והכו בקצה עולם.״`, pageW - margin, margin + 50, {
-    align: "right", isInputRtl: true,
+    align: "right",
   } as any);
   pdf.setTextColor(20);
 
@@ -143,7 +143,7 @@ export async function downloadWeeklyPDF(
   pdf.setFont("Heebo", "bold"); pdf.setFontSize(10); pdf.setTextColor(255);
   // label column header (empty / brand)
   pdf.text("קטגוריה", labelLeft + labelColW / 2, tableTop + 22, {
-    align: "center", isInputRtl: true,
+    align: "center",
   } as any);
 
   for (const d of days) {
@@ -153,12 +153,12 @@ export async function downloadWeeklyPDF(
     // Day name and date (top half)
     pdf.setFontSize(10);
     pdf.text(`${DAY_NAMES_SHORT[d]} ${fmtDate(date)}`, right - dayColW / 2, tableTop + 14, {
-      align: "center", isInputRtl: true,
+      align: "center",
     } as any);
     // Sub-headers (bottom half): תיכנון (right) / ביצוע (left)
     pdf.setFontSize(9);
-    pdf.text("תיכנון", right - subColW / 2, tableTop + 30, { align: "center", isInputRtl: true } as any);
-    pdf.text("ביצוע", right - subColW - subColW / 2, tableTop + 30, { align: "center", isInputRtl: true } as any);
+    pdf.text("תיכנון", right - subColW / 2, tableTop + 30, { align: "center" } as any);
+    pdf.text("ביצוע", right - subColW - subColW / 2, tableTop + 30, { align: "center" } as any);
 
     // sub-column divider
     pdf.setDrawColor(180);
