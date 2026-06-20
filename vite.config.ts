@@ -6,6 +6,9 @@ import tsConfigPaths from "vite-tsconfig-paths";
 import { nitro } from "nitro/vite";
 
 export default defineConfig({
+  // Vercel's Supabase integration uses NEXT_PUBLIC_* names. Vite normally
+  // exposes only VITE_*, so explicitly allow both safe public prefixes.
+  envPrefix: ["VITE_", "NEXT_PUBLIC_"],
   plugins: [
     tsConfigPaths(),
     tailwindcss(),
