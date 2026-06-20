@@ -27,6 +27,16 @@ The database connection variables beginning with `POSTGRES_` are managed by the 
 
 Never expose `SUPABASE_SECRET_KEY` or `SUPABASE_SERVICE_ROLE_KEY` with a public prefix.
 
+## Create the first administrator
+
+For a fresh database, add `BOOTSTRAP_ADMIN_EMAIL` in Vercel and set it to the exact
+email address of the account that should become the first administrator. Apply it
+to the environment you are testing and redeploy. Sign in once with that account;
+the app grants the admin role only when no administrator exists yet.
+
+After the account reaches the admin dashboard, remove `BOOTSTRAP_ADMIN_EMAIL` from
+Vercel and redeploy. Additional administrators can then be managed inside the app.
+
 ## Push notification variables
 
 VAPID values are not provided by Supabase. Generate a key pair once:

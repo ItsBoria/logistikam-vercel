@@ -5,7 +5,11 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useSupabaseSession } from "@/hooks/use-supabase-session";
 import { useAdminRoles } from "@/hooks/use-admin-roles";
-import { getMyTeamContext, claimAdminWithLegacyCreds } from "@/lib/membership.functions";
+import {
+  getMyTeamContext,
+  claimAdminWithLegacyCreds,
+  claimConfiguredFirstAdmin,
+} from "@/lib/membership.functions";
 import { setTeamSession, setAdminActing } from "@/lib/team-session";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,14 +29,27 @@ function Home() {
   const { session, loading: sessionLoading } = useSupabaseSession();
   const { data: roles, loading: rolesLoading } = useAdminRoles();
   const teamCtxFn = useServerFn(getMyTeamContext);
+  const claimFirstAdminFn = useServerFn(claimConfiguredFirstAdmin);
   const teamQ = useQuery({
     enabled: !!session,
     queryKey: ["my-team-context", session?.user.id],
     queryFn: () => teamCtxFn(),
   });
+  const firstAdminQ = useQuery({
+    enabled: !!session && !rolesLoading && !!roles && !roles.hasAccess,
+    queryKey: ["claim-configured-first-admin", session?.user.id],
+    queryFn: () => claimFirstAdminFn(),
+    retry: false,
+    staleTime: Infinity,
+  });
 
   useEffect(() => {
     if (!session || rolesLoading || !roles) return;
+    if (!roles.hasAccess && firstAdminQ.isLoading) return;
+    if (firstAdminQ.data?.claimed) {
+      window.location.reload();
+      return;
+    }
     if (roles.isAdmin) {
       setAdminActing(false);
       navigate({ to: "/admin", replace: true });
@@ -50,9 +67,21 @@ function Home() {
     } else {
       navigate({ to: "/select-team", replace: true });
     }
-  }, [session, rolesLoading, roles, teamQ.isLoading, teamQ.data, navigate]);
+  }, [
+    session,
+    rolesLoading,
+    roles,
+    firstAdminQ.isLoading,
+    firstAdminQ.data,
+    teamQ.isLoading,
+    teamQ.data,
+    navigate,
+  ]);
 
-  if (sessionLoading || (session && (rolesLoading || teamQ.isLoading))) {
+  if (
+    sessionLoading ||
+    (session && (rolesLoading || teamQ.isLoading || (!roles?.hasAccess && firstAdminQ.isLoading)))
+  ) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />

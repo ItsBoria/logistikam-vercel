@@ -38,6 +38,35 @@ export const getMyTeamContext = createServerFn({ method: "GET" })
     };
   });
 
+// Grants the first admin role only to the signed-in account explicitly
+// configured by the project owner in Vercel.
+export const claimConfiguredFirstAdmin = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const configuredEmail = process.env.BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase();
+    if (!configuredEmail) return { claimed: false, reason: "not_configured" as const };
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: userData, error: userError } = await supabaseAdmin.auth.admin.getUserById(context.userId);
+    if (userError || !userData.user) throw new Error(userError?.message || "Unable to load the signed-in user");
+    if ((userData.user.email || "").toLowerCase() !== configuredEmail) {
+      return { claimed: false, reason: "email_mismatch" as const };
+    }
+
+    const { count, error: countError } = await supabaseAdmin
+      .from("user_roles")
+      .select("*", { count: "exact", head: true })
+      .eq("role", "admin");
+    if (countError) throw new Error(countError.message);
+    if ((count ?? 0) > 0) return { claimed: false, reason: "admin_exists" as const };
+
+    const { error: roleError } = await supabaseAdmin
+      .from("user_roles")
+      .upsert({ user_id: context.userId, role: "admin" }, { onConflict: "user_id,role" });
+    if (roleError) throw new Error(roleError.message);
+    return { claimed: true, reason: "claimed" as const };
+  });
+
 export const listActiveTeams = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {

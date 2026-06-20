@@ -2,7 +2,6 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 const ADMIN_EMAIL_DOMAIN = "admins.local";
-const usernameSchema = z.string().min(2).max(40).regex(/^[a-zA-Z0-9_.-]+$/, "שם משתמש לא תקין");
 const identifierSchema = z.string().min(2).max(254);
 
 function synthEmail(username: string) {
@@ -55,39 +54,3 @@ export const resolveAdminEmail = createServerFn({ method: "POST" })
     return { email: null as string | null };
   });
 
-export const bootstrapAdminUsername = createServerFn({ method: "POST" })
-  .inputValidator((input) =>
-    z.object({
-      username: usernameSchema,
-      password: z.string().min(8).max(72),
-    }).parse(input)
-  )
-  .handler(async ({ data }) => {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { count } = await supabaseAdmin
-      .from("user_roles").select("*", { count: "exact", head: true }).eq("role", "admin");
-    if ((count ?? 0) > 0) throw new Error("מנהל ראשי כבר קיים");
-
-    const email = synthEmail(data.username);
-    const { data: list } = await supabaseAdmin.auth.admin.listUsers();
-    const existing = list.users.find((u) => (u.email || "").toLowerCase() === email);
-    let userId: string;
-    if (existing) {
-      userId = existing.id;
-      await supabaseAdmin.auth.admin.updateUserById(userId, {
-        password: data.password,
-        email_confirm: true,
-      });
-    } else {
-      const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
-        email,
-        password: data.password,
-        email_confirm: true,
-      });
-      if (error || !created.user) throw new Error(error?.message || "שגיאה ביצירת משתמש");
-      userId = created.user.id;
-    }
-    const { error: roleErr } = await supabaseAdmin.from("user_roles").insert({ user_id: userId, role: "admin" });
-    if (roleErr) throw new Error(roleErr.message);
-    return { email };
-  });

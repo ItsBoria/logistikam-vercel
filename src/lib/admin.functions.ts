@@ -2,7 +2,6 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
 
-const BOOTSTRAP_EMAIL = "davidpanasik@hotmail.com";
 const BUCKET = "product-images";
 const SIGN_TTL = 60 * 60 * 24 * 7;
 
@@ -15,48 +14,6 @@ async function resolveImage(supabaseAdmin: any, url: string | null | undefined):
   }
   return url;
 }
-
-// ---- Bootstrap (callable without auth) ----
-export const bootstrapAdminStatus = createServerFn({ method: "GET" })
-  .handler(async () => {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { count } = await supabaseAdmin
-      .from("user_roles").select("*", { count: "exact", head: true }).eq("role", "admin");
-    return { needsBootstrap: (count ?? 0) === 0, email: BOOTSTRAP_EMAIL };
-  });
-
-export const bootstrapAdmin = createServerFn({ method: "POST" })
-  .inputValidator((input) => z.object({
-    email: z.string().email(),
-    password: z.string().min(8).max(72),
-  }).parse(input))
-  .handler(async ({ data }) => {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    if (data.email.toLowerCase() !== BOOTSTRAP_EMAIL) {
-      throw new Error("רק כתובת האימייל המורשית יכולה לאתחל מנהל");
-    }
-    const { count } = await supabaseAdmin
-      .from("user_roles").select("*", { count: "exact", head: true }).eq("role", "admin");
-    if ((count ?? 0) > 0) throw new Error("מנהל ראשי כבר קיים");
-
-    // Try to find an existing user with this email
-    const { data: list } = await supabaseAdmin.auth.admin.listUsers();
-    const existing = list.users.find(u => u.email?.toLowerCase() === data.email.toLowerCase());
-    let userId: string;
-    if (existing) {
-      userId = existing.id;
-      await supabaseAdmin.auth.admin.updateUserById(userId, { password: data.password, email_confirm: true });
-    } else {
-      const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
-        email: data.email, password: data.password, email_confirm: true,
-      });
-      if (error || !created.user) throw new Error(error?.message || "שגיאה ביצירת משתמש");
-      userId = created.user.id;
-    }
-    const { error: roleErr } = await supabaseAdmin.from("user_roles").insert({ user_id: userId, role: "admin" });
-    if (roleErr) throw new Error(roleErr.message);
-    return { ok: true };
-  });
 
 // ---- Authenticated admin helpers ----
 async function assertAdmin(userId: string) {
