@@ -2,20 +2,20 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database } from "./types";
 
 function createSupabaseAdminClient() {
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serverKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
 
-  if (!supabaseUrl || !serviceRoleKey) {
+  if (!supabaseUrl || !serverKey) {
     const missing = [
-      ...(!supabaseUrl ? ["SUPABASE_URL"] : []),
-      ...(!serviceRoleKey ? ["SUPABASE_SERVICE_ROLE_KEY"] : []),
+      ...(!supabaseUrl ? ["SUPABASE_URL / NEXT_PUBLIC_SUPABASE_URL"] : []),
+      ...(!serverKey ? ["SUPABASE_SERVICE_ROLE_KEY / SUPABASE_SECRET_KEY"] : []),
     ];
-    const message = `Missing Supabase environment variable(s): ${missing.join(", ")}. Configure them in Vercel.`;
+    const message = `Missing Supabase environment variable(s): ${missing.join(", ")}. Configure the Supabase integration in Vercel.`;
     console.error(`[Supabase] ${message}`);
     throw new Error(message);
   }
 
-  return createClient<Database>(supabaseUrl, serviceRoleKey, {
+  return createClient<Database>(supabaseUrl, serverKey, {
     auth: {
       storage: undefined,
       persistSession: false,
@@ -26,7 +26,7 @@ function createSupabaseAdminClient() {
 
 let supabaseAdminClient: ReturnType<typeof createSupabaseAdminClient> | undefined;
 
-// SECURITY: This service-role client bypasses RLS. Import it only from server code.
+// SECURITY: This privileged client bypasses RLS. Import it only from server code.
 export const supabaseAdmin = new Proxy({} as ReturnType<typeof createSupabaseAdminClient>, {
   get(_, prop, receiver) {
     if (!supabaseAdminClient) supabaseAdminClient = createSupabaseAdminClient();
