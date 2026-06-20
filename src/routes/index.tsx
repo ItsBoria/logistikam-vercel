@@ -3,11 +3,10 @@ import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable";
 import { useSupabaseSession } from "@/hooks/use-supabase-session";
 import { useAdminRoles } from "@/hooks/use-admin-roles";
 import { getMyTeamContext, claimAdminWithLegacyCreds } from "@/lib/membership.functions";
-import { setTeamSession, setAdminActing, getTeamSession } from "@/lib/team-session";
+import { setTeamSession, setAdminActing } from "@/lib/team-session";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -32,7 +31,6 @@ function Home() {
     queryFn: () => teamCtxFn(),
   });
 
-  // Route signed-in users
   useEffect(() => {
     if (!session || rolesLoading || !roles) return;
     if (roles.isAdmin) {
@@ -90,15 +88,11 @@ function GoogleButton() {
   async function onClick() {
     setLoading(true);
     try {
-      const result = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: window.location.origin,
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: window.location.origin },
       });
-      if (result.error) {
-        toast.error((result.error as any).message || "שגיאת התחברות");
-        setLoading(false);
-        return;
-      }
-      // result.redirected → browser navigates away
+      if (error) throw error;
     } catch (e: any) {
       toast.error(e.message || "שגיאת התחברות");
       setLoading(false);
