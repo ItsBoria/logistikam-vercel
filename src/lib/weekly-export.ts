@@ -143,9 +143,7 @@ export async function downloadWeeklyPDF(
 
   pdf.setFont("Heebo", "bold"); pdf.setFontSize(10); pdf.setTextColor(255);
   // label column header (empty / brand)
-  pdf.text("קטגוריה", labelLeft + labelColW / 2, tableTop + 22, {
-    align: "center",
-  } as any);
+  drawVisual(pdf, "קטגוריה", labelLeft + labelColW / 2, tableTop + 22, "center");
 
   for (const d of days) {
     const right = dayRight(d);
@@ -153,13 +151,11 @@ export async function downloadWeeklyPDF(
     date.setUTCDate(range.start.getUTCDate() + d);
     // Day name and date (top half)
     pdf.setFontSize(10);
-    pdf.text(`${DAY_NAMES_SHORT[d]} ${fmtDate(date)}`, right - dayColW / 2, tableTop + 14, {
-      align: "center",
-    } as any);
+    drawVisual(pdf, `${DAY_NAMES_SHORT[d]} ${fmtDate(date)}`, right - dayColW / 2, tableTop + 14, "center");
     // Sub-headers (bottom half): תיכנון (right) / ביצוע (left)
     pdf.setFontSize(9);
-    pdf.text("תיכנון", right - subColW / 2, tableTop + 30, { align: "center" } as any);
-    pdf.text("ביצוע", right - subColW - subColW / 2, tableTop + 30, { align: "center" } as any);
+    drawVisual(pdf, "תיכנון", right - subColW / 2, tableTop + 30, "center");
+    drawVisual(pdf, "ביצוע", right - subColW - subColW / 2, tableTop + 30, "center");
 
     // sub-column divider
     pdf.setDrawColor(180);
