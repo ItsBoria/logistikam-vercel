@@ -235,14 +235,6 @@ function Shop() {
         <div className="h-24 sm:hidden" aria-hidden />
       </main>
 
-      <CartBudgetPill
-        itemCount={itemCount}
-        total={total}
-        spent={spent}
-        limit={limit}
-        willExceed={willExceed}
-        onOpen={() => itemCount > 0 && setCheckout(true)}
-      />
 
       <BottomTabBar pin={session!.pin} />
 
