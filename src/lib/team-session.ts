@@ -19,6 +19,7 @@ export function setTeamSession(s: TeamSession | null) {
   if (typeof window === "undefined") return;
   if (s) localStorage.setItem(KEY, JSON.stringify(s));
   else localStorage.removeItem(KEY);
+  try { window.dispatchEvent(new Event("team-session-changed")); } catch {}
 }
 
 // Admin-only: flag that the current team session is a "view as" override.

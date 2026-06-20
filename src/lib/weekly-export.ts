@@ -1,12 +1,39 @@
-// Weekly mission plan export — PDF (jsPDF + Heebo, manual RTL layout) and DOCX.
+// Weekly mission plan export — PDF (jsPDF + Heebo, bidi-js for RTL) and DOCX.
 import jsPDF from "jspdf";
 import { saveAs } from "file-saver";
+import bidiFactory from "bidi-js";
 import {
   Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
   AlignmentType, HeadingLevel, BorderStyle, WidthType, ShadingType,
 } from "docx";
 import { attachHeebo } from "./pdf-fonts";
 import type { MissionRow, WeekRow, DayNoteRow } from "./missions.functions";
+
+const bidi = bidiFactory();
+
+// Compute visual (display) order from logical text, using the Unicode Bidi Algorithm.
+// jsPDF draws text as-is, so we must hand it text already in visual order for RTL.
+function toVisual(str: string): string {
+  if (!str) return str;
+  // Process line by line — bidi-js operates per paragraph.
+  return str.split("\n").map((line) => {
+    if (!line) return line;
+    const levels = bidi.getEmbeddingLevels(line, "rtl");
+    const segments = bidi.getReorderSegments(line, levels);
+    let chars = line.split("");
+    for (const seg of segments) {
+      const [start, end] = seg;
+      const slice = chars.slice(start, end + 1).reverse();
+      // Mirror brackets/parens
+      for (let i = 0; i < slice.length; i++) {
+        const m = bidi.getMirroredCharacter(slice[i]);
+        if (m) slice[i] = m;
+      }
+      chars.splice(start, end - start + 1, ...slice);
+    }
+    return chars.join("");
+  }).join("\n");
+}
 
 const DAY_NAMES_SHORT = ["יום א'", "יום ב'", "יום ג'", "יום ד'", "יום ה'", "יום ו'", "יום ש'"];
 const HEB_MONTHS = ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני", "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"];
@@ -36,15 +63,20 @@ type Pdf = jsPDF;
 function rtlText(pdf: Pdf, str: string, xRight: number, y: number, maxW?: number) {
   if (!str) return;
   if (maxW) {
+    // Wrap on logical text, then reorder each line visually for jsPDF.
     const lines = pdf.splitTextToSize(str, maxW) as string[];
     lines.forEach((ln, i) => {
-      pdf.text(ln, xRight, y + i * (pdf.getLineHeight() / pdf.internal.scaleFactor), {
-        align: "right", isInputRtl: true,
+      pdf.text(toVisual(ln), xRight, y + i * (pdf.getLineHeight() / pdf.internal.scaleFactor), {
+        align: "right",
       } as any);
     });
   } else {
-    pdf.text(str, xRight, y, { align: "right", isInputRtl: true } as any);
+    pdf.text(toVisual(str), xRight, y, { align: "right" } as any);
   }
+}
+
+function drawVisual(pdf: Pdf, str: string, x: number, y: number, align: "left" | "center" | "right") {
+  pdf.text(toVisual(str), x, y, { align } as any);
 }
 
 function wrappedHeight(pdf: Pdf, str: string, maxW: number): number {
@@ -70,17 +102,13 @@ export async function downloadWeeklyPDF(
 
   // --- Header (centered) ---
   pdf.setFont("Heebo", "bold"); pdf.setFontSize(20);
-  pdf.text(brandName, pageW / 2, margin + 14, { align: "center", isInputRtl: true } as any);
+  drawVisual(pdf, brandName, pageW / 2, margin + 14, "center");
   pdf.setFontSize(13);
-  pdf.text(`שבוע ${week.week} | ${monthName} ${week.year}`, pageW / 2, margin + 34, {
-    align: "center", isInputRtl: true,
-  } as any);
+  drawVisual(pdf, `שבוע ${week.week} | ${monthName} ${week.year}`, pageW / 2, margin + 34, "center");
 
   // optional quote line (per the paper form)
   pdf.setFont("Heebo", "normal"); pdf.setFontSize(8); pdf.setTextColor(110);
-  pdf.text(`״ובחצי הלילה הם קמו והכו בקצה עולם.״`, pageW - margin, margin + 50, {
-    align: "right", isInputRtl: true,
-  } as any);
+  drawVisual(pdf, `״ובחצי הלילה הם קמו והכו בקצה עולם.״`, pageW - margin, margin + 50, "right");
   pdf.setTextColor(20);
 
   // --- Table layout (RTL columns) ---
@@ -115,9 +143,7 @@ export async function downloadWeeklyPDF(
 
   pdf.setFont("Heebo", "bold"); pdf.setFontSize(10); pdf.setTextColor(255);
   // label column header (empty / brand)
-  pdf.text("קטגוריה", labelLeft + labelColW / 2, tableTop + 22, {
-    align: "center", isInputRtl: true,
-  } as any);
+  drawVisual(pdf, "קטגוריה", labelLeft + labelColW / 2, tableTop + 22, "center");
 
   for (const d of days) {
     const right = dayRight(d);
@@ -125,13 +151,11 @@ export async function downloadWeeklyPDF(
     date.setUTCDate(range.start.getUTCDate() + d);
     // Day name and date (top half)
     pdf.setFontSize(10);
-    pdf.text(`${DAY_NAMES_SHORT[d]} ${fmtDate(date)}`, right - dayColW / 2, tableTop + 14, {
-      align: "center", isInputRtl: true,
-    } as any);
+    drawVisual(pdf, `${DAY_NAMES_SHORT[d]} ${fmtDate(date)}`, right - dayColW / 2, tableTop + 14, "center");
     // Sub-headers (bottom half): תיכנון (right) / ביצוע (left)
     pdf.setFontSize(9);
-    pdf.text("תיכנון", right - subColW / 2, tableTop + 30, { align: "center", isInputRtl: true } as any);
-    pdf.text("ביצוע", right - subColW - subColW / 2, tableTop + 30, { align: "center", isInputRtl: true } as any);
+    drawVisual(pdf, "תיכנון", right - subColW / 2, tableTop + 30, "center");
+    drawVisual(pdf, "ביצוע", right - subColW - subColW / 2, tableTop + 30, "center");
 
     // sub-column divider
     pdf.setDrawColor(180);

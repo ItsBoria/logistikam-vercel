@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Plus, Minus, AlertTriangle, Loader2, Trash2 } from "lucide-react";
 import { SearchInput } from "@/components/ui/search-input";
-import { CartBudgetPill } from "@/components/cart-budget-pill";
+import { useCart } from "@/lib/cart-context";
 import { useHideOnScroll } from "@/hooks/use-scroll-direction";
 import { toast } from "sonner";
 
@@ -47,12 +47,19 @@ function Shop() {
     queryFn: () => fetchShop({ data: { pin: session!.pin } }),
   });
 
-  const [cart, setCart] = useState<CartMap>({});
+  const { cart, setQty, clear: clearCart } = useCart();
   const [checkout, setCheckout] = useState(false);
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
   const [notes, setNotes] = useState("");
   const [placing, setPlacing] = useState(false);
+
+  // Listen for global "open cart" event from nav pill
+  useEffect(() => {
+    const h = () => setCheckout(true);
+    window.addEventListener("open-checkout", h);
+    return () => window.removeEventListener("open-checkout", h);
+  }, []);
 
   // Prefill contact info from previous orders (per-team) and any reorder cart
   useEffect(() => {
@@ -70,9 +77,7 @@ function Shop() {
       if (prefill) {
         sessionStorage.removeItem(prefillKey);
         const items: Array<{ product_id: string; quantity: number }> = JSON.parse(prefill);
-        const next: CartMap = {};
-        for (const it of items) next[it.product_id] = it.quantity;
-        setCart(next);
+        for (const it of items) setQty(it.product_id, it.quantity);
       }
     } catch {}
   }, [session?.pin]);
@@ -110,11 +115,6 @@ function Shop() {
   const remaining = limit > 0 ? limit - spent : Infinity;
   const willExceed = limit > 0 && (spent + total) > limit;
 
-  function setQty(id: string, q: number, max: number) {
-    const v = Math.max(0, Math.min(max, q));
-    setCart(c => { const n = { ...c }; if (v === 0) delete n[id]; else n[id] = v; return n; });
-  }
-
   async function submitOrder() {
     if (!phone || !name) { toast.error("יש למלא שם וטלפון"); return; }
     setPlacing(true);
@@ -127,7 +127,7 @@ function Shop() {
       toast.success(res.requires_approval
         ? "ההזמנה נשלחה ומחכה לאישור מנהל (חריגה ממסגרת)"
         : "ההזמנה נשלחה בהצלחה!");
-      setCart({}); setCheckout(false); setNotes("");
+      clearCart(); setCheckout(false); setNotes("");
       refetch();
     } catch (e: any) {
       toast.error(e.message || "שגיאה בשליחת הזמנה");
@@ -235,14 +235,6 @@ function Shop() {
         <div className="h-24 sm:hidden" aria-hidden />
       </main>
 
-      <CartBudgetPill
-        itemCount={itemCount}
-        total={total}
-        spent={spent}
-        limit={limit}
-        willExceed={willExceed}
-        onOpen={() => itemCount > 0 && setCheckout(true)}
-      />
 
       <BottomTabBar pin={session!.pin} />
 

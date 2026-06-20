@@ -7,13 +7,15 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Toaster } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { PageTransition } from "@/components/page-transition";
+import { CartProvider } from "@/lib/cart-context";
+import { getTeamSession } from "@/lib/team-session";
 
 function NotFoundComponent() {
   return (
@@ -95,12 +97,25 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const [pin, setPin] = useState<string | null>(null);
+  useEffect(() => {
+    const sync = () => setPin(getTeamSession()?.pin ?? null);
+    sync();
+    window.addEventListener("storage", sync);
+    window.addEventListener("team-session-changed", sync);
+    return () => {
+      window.removeEventListener("storage", sync);
+      window.removeEventListener("team-session-changed", sync);
+    };
+  }, []);
   return (
     <QueryClientProvider client={queryClient}>
       <AuthSync />
-      <PageTransition>
-        <Outlet />
-      </PageTransition>
+      <CartProvider pin={pin}>
+        <PageTransition>
+          <Outlet />
+        </PageTransition>
+      </CartProvider>
       <Toaster position="top-center" richColors dir="rtl" />
     </QueryClientProvider>
   );
