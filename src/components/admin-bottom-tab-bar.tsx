@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard, ShoppingBag, Package, Boxes, Users,
-  MoreHorizontal, Replace, Bell, UserCog, CalendarDays,
+  MoreHorizontal, Replace, Bell, UserCog, CalendarDays, Settings2,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { getAdminDashboard } from "@/lib/admin-dashboard.functions";
@@ -25,6 +25,8 @@ const ADMIN_MORE: Item[] = [
   { to: "/admin/replacements", label: "בקשות החלפה", icon: Replace },
   { to: "/admin/notifications", label: "התראות", icon: Bell },
 ];
+
+ADMIN_MORE.push({ to: "/admin/preferences", label: "הפאנל שלי", icon: Settings2 });
 
 const STAFF_MAIN: Item[] = [
   { to: "/admin", label: "סקירה", icon: LayoutDashboard, exact: true },

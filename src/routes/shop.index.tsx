@@ -188,11 +188,11 @@ function Shop() {
         {filtered.length === 0 ? (
           <Card className="p-12 text-center text-muted-foreground">לא נמצאו מוצרים</Card>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div key={`${category}-${search}-${inStockOnly}`} className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 admin-stagger">
             {filtered.map((p: any) => {
               const qty = cart[p.id] || 0;
               return (
-                <Card key={p.id} className="overflow-hidden flex flex-col">
+                <Card key={p.id} className="overflow-hidden flex flex-col store-product-card">
                   <div className="aspect-square bg-muted relative">
                     {p.image_url
                       ? <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />

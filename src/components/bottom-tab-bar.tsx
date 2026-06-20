@@ -120,7 +120,7 @@ function CartPill({ pin }: { pin: string }) {
 
   return (
     <PillBase active={hasCart} tone={tone} onClick={openCheckout} ariaLabel={ariaLabel}>
-      <span key={bumpKey} className="relative inline-flex animate-in zoom-in-95 duration-200">
+      <span key={bumpKey} className="relative inline-flex cart-pill-bump">
         <ShoppingCart className="h-[18px] w-[18px] shrink-0 sm:h-5 sm:w-5" />
       </span>
       <span className="flex min-w-0 flex-col items-start leading-tight">

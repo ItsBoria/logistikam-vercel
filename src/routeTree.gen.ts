@@ -21,6 +21,7 @@ import { Route as AdminStockRouteImport } from './routes/admin.stock'
 import { Route as AdminReplacementsRouteImport } from './routes/admin.replacements'
 import { Route as AdminReplacementInventoryRouteImport } from './routes/admin.replacement-inventory'
 import { Route as AdminProductsRouteImport } from './routes/admin.products'
+import { Route as AdminPreferencesRouteImport } from './routes/admin.preferences'
 import { Route as AdminOrdersRouteImport } from './routes/admin.orders'
 import { Route as AdminNotificationsRouteImport } from './routes/admin.notifications'
 import { Route as AdminLoginRouteImport } from './routes/admin.login'
@@ -87,6 +88,11 @@ const AdminProductsRoute = AdminProductsRouteImport.update({
   path: '/admin/products',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminPreferencesRoute = AdminPreferencesRouteImport.update({
+  id: '/admin/preferences',
+  path: '/admin/preferences',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminOrdersRoute = AdminOrdersRouteImport.update({
   id: '/admin/orders',
   path: '/admin/orders',
@@ -115,6 +121,7 @@ export interface FileRoutesByFullPath {
   '/admin/login': typeof AdminLoginRoute
   '/admin/notifications': typeof AdminNotificationsRoute
   '/admin/orders': typeof AdminOrdersRoute
+  '/admin/preferences': typeof AdminPreferencesRoute
   '/admin/products': typeof AdminProductsRoute
   '/admin/replacement-inventory': typeof AdminReplacementInventoryRoute
   '/admin/replacements': typeof AdminReplacementsRoute
@@ -133,6 +140,7 @@ export interface FileRoutesByTo {
   '/admin/login': typeof AdminLoginRoute
   '/admin/notifications': typeof AdminNotificationsRoute
   '/admin/orders': typeof AdminOrdersRoute
+  '/admin/preferences': typeof AdminPreferencesRoute
   '/admin/products': typeof AdminProductsRoute
   '/admin/replacement-inventory': typeof AdminReplacementInventoryRoute
   '/admin/replacements': typeof AdminReplacementsRoute
@@ -152,6 +160,7 @@ export interface FileRoutesById {
   '/admin/login': typeof AdminLoginRoute
   '/admin/notifications': typeof AdminNotificationsRoute
   '/admin/orders': typeof AdminOrdersRoute
+  '/admin/preferences': typeof AdminPreferencesRoute
   '/admin/products': typeof AdminProductsRoute
   '/admin/replacement-inventory': typeof AdminReplacementInventoryRoute
   '/admin/replacements': typeof AdminReplacementsRoute
@@ -172,6 +181,7 @@ export interface FileRouteTypes {
     | '/admin/login'
     | '/admin/notifications'
     | '/admin/orders'
+    | '/admin/preferences'
     | '/admin/products'
     | '/admin/replacement-inventory'
     | '/admin/replacements'
@@ -190,6 +200,7 @@ export interface FileRouteTypes {
     | '/admin/login'
     | '/admin/notifications'
     | '/admin/orders'
+    | '/admin/preferences'
     | '/admin/products'
     | '/admin/replacement-inventory'
     | '/admin/replacements'
@@ -208,6 +219,7 @@ export interface FileRouteTypes {
     | '/admin/login'
     | '/admin/notifications'
     | '/admin/orders'
+    | '/admin/preferences'
     | '/admin/products'
     | '/admin/replacement-inventory'
     | '/admin/replacements'
@@ -227,6 +239,7 @@ export interface RootRouteChildren {
   AdminLoginRoute: typeof AdminLoginRoute
   AdminNotificationsRoute: typeof AdminNotificationsRoute
   AdminOrdersRoute: typeof AdminOrdersRoute
+  AdminPreferencesRoute: typeof AdminPreferencesRoute
   AdminProductsRoute: typeof AdminProductsRoute
   AdminReplacementInventoryRoute: typeof AdminReplacementInventoryRoute
   AdminReplacementsRoute: typeof AdminReplacementsRoute
@@ -325,6 +338,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminProductsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/preferences': {
+      id: '/admin/preferences'
+      path: '/admin/preferences'
+      fullPath: '/admin/preferences'
+      preLoaderRoute: typeof AdminPreferencesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/orders': {
       id: '/admin/orders'
       path: '/admin/orders'
@@ -363,6 +383,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminLoginRoute: AdminLoginRoute,
   AdminNotificationsRoute: AdminNotificationsRoute,
   AdminOrdersRoute: AdminOrdersRoute,
+  AdminPreferencesRoute: AdminPreferencesRoute,
   AdminProductsRoute: AdminProductsRoute,
   AdminReplacementInventoryRoute: AdminReplacementInventoryRoute,
   AdminReplacementsRoute: AdminReplacementsRoute,
@@ -377,3 +398,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

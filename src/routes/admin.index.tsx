@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { formatCurrency } from "@/lib/pricing";
 import { Loader2, ShoppingBag, Clock, DollarSign, Users, AlertTriangle, Pencil, Check, X, Package, Replace, Settings, Timer, TrendingDown } from "lucide-react";
 import { toast } from "sonner";
+import { useAdminPreferences } from "@/hooks/use-admin-preferences";
 
 export const Route = createFileRoute("/admin/")({
   ssr: false,
@@ -42,6 +43,7 @@ const STATUS_COLOR: Record<string, string> = {
 function DashboardPage() {
   const qc = useQueryClient();
   const { data: myRoles } = useAdminRoles();
+  const { data: preferences } = useAdminPreferences();
   const isAdmin = !!myRoles?.isAdmin;
   const dashFn = useServerFn(getAdminDashboard);
   const limitFn = useServerFn(setTeamMonthlyLimit);
@@ -102,10 +104,13 @@ function DashboardPage() {
     } catch (e: any) { toast.error(e.message || "שגיאה"); }
   }
 
+  const visible = (widget: string) => preferences?.visible_widgets?.includes(widget) ?? true;
+  const widgetOrder = (widget: string) => preferences?.widget_order?.indexOf(widget) ?? 0;
+
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6 admin-stagger">
       {/* KPI cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className={`${visible("kpis") ? "grid" : "hidden"} grid-cols-2 lg:grid-cols-4 gap-3`} style={{ order: widgetOrder("kpis") }}>
         <Kpi icon={<Clock className="w-5 h-5" />} label="ממתינות" value={kpis.pending + kpis.awaiting} tone="warning" />
         <Kpi icon={<Timer className="w-5 h-5" />} label="הזמנות תקועות" value={kpis.stuck ?? 0} tone={(kpis.stuck ?? 0) > 0 ? "warning" : undefined} />
         <Kpi icon={<Replace className="w-5 h-5" />} label="בקשות החלפה" value={kpis.pendingReplacements} tone={kpis.pendingReplacements > 0 ? "warning" : undefined} />
@@ -119,8 +124,8 @@ function DashboardPage() {
       </div>
 
       {/* Stuck orders */}
-      {stuckOrders && stuckOrders.length > 0 && (
-        <Card className="p-4 border-warning/40">
+      {visible("attention") && stuckOrders && stuckOrders.length > 0 && (
+        <Card className="p-4 border-warning/40 admin-card" style={{ order: widgetOrder("attention") }}>
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-bold flex items-center gap-2 text-warning-foreground"><Timer className="w-4 h-4" /> הזמנות שדורשות תשומת לב</h2>
             <Link to="/admin/orders" className="text-xs text-muted-foreground hover:text-foreground">לכל ההזמנות ←</Link>
@@ -174,9 +179,9 @@ function DashboardPage() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" style={{ order: Math.min(widgetOrder("budgets"), widgetOrder("stock")) }}>
         {/* Top teams */}
-        <Card className="p-4">
+        <Card className={`${visible("budgets") ? "block" : "hidden"} p-4 admin-card`}>
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-bold">תקציבי צוותים</h2>
             {isAdmin && <Link to="/admin/teams" className="text-xs text-muted-foreground hover:text-foreground">ניהול צוותים ←</Link>}
@@ -226,7 +231,7 @@ function DashboardPage() {
         </Card>
 
         {/* Low stock */}
-        <Card className="p-4">
+        <Card className={`${visible("stock") ? "block" : "hidden"} p-4 admin-card`}>
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-bold flex items-center gap-2"><Package className="w-4 h-4" /> מלאי נמוך</h2>
             <Link to={isAdmin ? "/admin/products" : "/admin/stock"} className="text-xs text-muted-foreground hover:text-foreground">{isAdmin ? "ניהול מוצרים" : "ניהול מלאי"} ←</Link>
@@ -249,7 +254,7 @@ function DashboardPage() {
       </div>
 
       {/* Recent orders */}
-      <Card className="p-4">
+      <Card className={`${visible("recent_orders") ? "block" : "hidden"} p-4 admin-card`} style={{ order: widgetOrder("recent_orders") }}>
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-bold">הזמנות אחרונות</h2>
           <Link to="/admin/orders" className="text-xs text-muted-foreground hover:text-foreground">לכל ההזמנות ←</Link>
@@ -290,7 +295,7 @@ function DashboardPage() {
 
 function Kpi({ icon, label, value, tone }: { icon: React.ReactNode; label: string; value: React.ReactNode; tone?: "warning" }) {
   return (
-    <Card className="p-4">
+    <Card className="p-4 admin-card">
       <div className={`flex items-center gap-2 text-xs ${tone === "warning" ? "text-warning-foreground" : "text-muted-foreground"}`}>
         {tone === "warning" ? <AlertTriangle className="w-4 h-4" /> : icon}
         <span>{label}</span>

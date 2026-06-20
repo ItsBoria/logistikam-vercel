@@ -98,3 +98,53 @@
     font-feature-settings: "kern";
   }
 }
+
+@keyframes gentle-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes soft-pulse {
+  0%, 100% { transform: scale(1); }
+  45% { transform: scale(1.04); }
+}
+
+.admin-stagger > * {
+  animation: gentle-rise 220ms cubic-bezier(.22,1,.36,1) both;
+}
+.admin-stagger > *:nth-child(2) { animation-delay: 35ms; }
+.admin-stagger > *:nth-child(3) { animation-delay: 70ms; }
+.admin-stagger > *:nth-child(4) { animation-delay: 105ms; }
+.admin-card, .store-product-card {
+  transition: transform 180ms ease-out, box-shadow 180ms ease-out, border-color 180ms ease-out;
+}
+.admin-card:hover, .store-product-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 30px color-mix(in oklab, var(--foreground) 9%, transparent);
+}
+.cart-pill-bump { animation: soft-pulse 220ms ease-out; }
+.admin-skeleton {
+  background: linear-gradient(100deg, var(--muted) 20%, var(--card) 45%, var(--muted) 70%);
+  background-size: 220% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+@keyframes shimmer { to { background-position-x: -220%; } }
+
+.admin-compact .admin-main { padding: .65rem; }
+.admin-compact .admin-card { padding: .75rem; }
+
+.reduce-app-motion *, .reduce-app-motion *::before, .reduce-app-motion *::after {
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+  transition-duration: 80ms !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+  .admin-card:hover, .store-product-card:hover { transform: none; }
+}

@@ -16,22 +16,70 @@ export type Database = {
     Tables: {
       admin_notification_prefs: {
         Row: {
+          email_enabled: boolean
           enabled: boolean
           event_type: string
+          in_app_enabled: boolean
+          push_enabled: boolean
           updated_at: string
           user_id: string
         }
         Insert: {
+          email_enabled?: boolean
           enabled?: boolean
           event_type: string
+          in_app_enabled?: boolean
+          push_enabled?: boolean
           updated_at?: string
           user_id: string
         }
         Update: {
+          email_enabled?: boolean
           enabled?: boolean
           event_type?: string
+          in_app_enabled?: boolean
+          push_enabled?: boolean
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      admin_preferences: {
+        Row: {
+          appearance: string
+          compact_mode: boolean
+          default_section: string
+          pinned_actions: Json
+          reduced_animations: boolean
+          saved_filters: Json
+          updated_at: string
+          user_id: string
+          visible_widgets: Json
+          widget_order: Json
+        }
+        Insert: {
+          appearance?: string
+          compact_mode?: boolean
+          default_section?: string
+          pinned_actions?: Json
+          reduced_animations?: boolean
+          saved_filters?: Json
+          updated_at?: string
+          user_id: string
+          visible_widgets?: Json
+          widget_order?: Json
+        }
+        Update: {
+          appearance?: string
+          compact_mode?: boolean
+          default_section?: string
+          pinned_actions?: Json
+          reduced_animations?: boolean
+          saved_filters?: Json
+          updated_at?: string
+          user_id?: string
+          visible_widgets?: Json
+          widget_order?: Json
         }
         Relationships: []
       }

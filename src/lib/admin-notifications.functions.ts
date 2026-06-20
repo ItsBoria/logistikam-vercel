@@ -2,8 +2,14 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
 
-const EVENT_TYPES = ["order_created", "order_awaiting_approval", "low_stock", "replacement_request"] as const;
+export const ADMIN_EVENT_TYPES = [
+  "order_created", "order_awaiting_approval", "order_approved", "order_rejected",
+  "order_ready", "order_cancelled", "budget_low", "budget_exceeded",
+  "low_stock", "out_of_stock", "replacement_request", "system_alert",
+] as const;
+const EVENT_TYPES = ADMIN_EVENT_TYPES;
 const eventTypeSchema = z.enum(EVENT_TYPES);
+const channelSchema = z.enum(["in_app_enabled", "push_enabled", "email_enabled"]);
 
 async function assertAdminOrStaff(userId: string) {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -22,29 +28,42 @@ export const getMyNotificationPrefs = createServerFn({ method: "GET" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data } = await supabaseAdmin
       .from("admin_notification_prefs")
-      .select("event_type, enabled")
+      .select("event_type, enabled, in_app_enabled, push_enabled, email_enabled")
       .eq("user_id", context.userId);
-    const map: Record<string, boolean> = {};
-    for (const evt of EVENT_TYPES) map[evt] = true; // default ON
-    for (const row of data ?? []) map[(row as any).event_type] = (row as any).enabled;
-    return map as Record<(typeof EVENT_TYPES)[number], boolean>;
+    const map: Record<string, { in_app_enabled: boolean; push_enabled: boolean; email_enabled: boolean }> = {};
+    for (const evt of EVENT_TYPES) {
+      map[evt] = { in_app_enabled: true, push_enabled: true, email_enabled: false };
+    }
+    for (const row of data ?? []) {
+      map[(row as any).event_type] = {
+        in_app_enabled: (row as any).in_app_enabled ?? true,
+        push_enabled: (row as any).push_enabled ?? (row as any).enabled ?? true,
+        email_enabled: (row as any).email_enabled ?? false,
+      };
+    }
+    return map;
   });
 
 export const setMyNotificationPref = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input) => z.object({
     event_type: eventTypeSchema,
+    channel: channelSchema,
     enabled: z.boolean(),
   }).parse(input))
   .handler(async ({ data, context }) => {
     await assertAdminOrStaff(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const payload = {
+      user_id: context.userId,
+      event_type: data.event_type,
+      [data.channel]: data.enabled,
+      ...(data.channel === "push_enabled" ? { enabled: data.enabled } : {}),
+      updated_at: new Date().toISOString(),
+    };
     const { error } = await supabaseAdmin
       .from("admin_notification_prefs")
-      .upsert(
-        { user_id: context.userId, event_type: data.event_type, enabled: data.enabled, updated_at: new Date().toISOString() },
-        { onConflict: "user_id,event_type" },
-      );
+      .upsert(payload, { onConflict: "user_id,event_type" });
     if (error) throw new Error(error.message);
     return { ok: true };
   });
