@@ -7,25 +7,41 @@ This repository is the provider-independent version of Logistikam. It uses TanSt
 1. In Vercel, choose **Add New → Project** and import `ItsBoria/logistikam-vercel`.
 2. Select the `codex/vercel-independent` branch for the first preview deployment.
 3. Keep the detected build command (`npm run build`). Do not set a custom output directory.
-4. Add the environment variables below for **Preview** and **Production**.
+4. Connect the existing Supabase project through the Vercel Marketplace integration.
 5. Deploy and use the generated Preview URL for testing.
 
-## Environment variables
+## Supabase environment variables
 
-Copy the values from the existing Supabase project and push-notification configuration. Never expose the service-role or private VAPID keys with a `VITE_` prefix.
+The code supports the variable names created by Vercel's Supabase integration:
 
-| Variable | Scope | Required |
-| --- | --- | --- |
-| `VITE_SUPABASE_URL` | Browser | Yes |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | Browser | Yes |
-| `SUPABASE_URL` | Server | Yes |
-| `SUPABASE_PUBLISHABLE_KEY` | Server | Yes |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server secret | Yes |
-| `VAPID_PUBLIC_KEY` | Server | For push notifications |
-| `VAPID_PRIVATE_KEY` | Server secret | For push notifications |
-| `VAPID_SUBJECT` | Server | For push notifications; use `mailto:you@example.com` or an HTTPS URL |
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_URL`
+- `SUPABASE_PUBLISHABLE_KEY`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_SECRET_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
 
-`.env.example` contains the same list for local development.
+The database connection variables beginning with `POSTGRES_` are managed by the integration but are not used directly by this application.
+
+Never expose `SUPABASE_SECRET_KEY` or `SUPABASE_SERVICE_ROLE_KEY` with a public prefix.
+
+## Push notification variables
+
+VAPID values are not provided by Supabase. Generate a key pair once:
+
+```bash
+npx web-push generate-vapid-keys
+```
+
+Add the result in Vercel → Project → Settings → Environment Variables:
+
+- `VAPID_PUBLIC_KEY`
+- `VAPID_PRIVATE_KEY` (mark Sensitive)
+- `VAPID_SUBJECT`, for example `mailto:you@example.com`
+
+Apply them to Preview and Production, then redeploy. Keep the same VAPID key pair across deployments so existing notification subscriptions remain valid.
 
 ## Supabase authentication settings
 
@@ -35,7 +51,11 @@ In Supabase Dashboard → Authentication → URL Configuration:
 - Add the Vercel production URL to **Redirect URLs**.
 - Add the Vercel preview wildcard, for example `https://*-your-vercel-team.vercel.app/**`.
 
-In Supabase Dashboard → Authentication → Providers → Google, keep Google enabled. The application now calls Supabase OAuth directly rather than Lovable authentication.
+In Supabase Dashboard → Authentication → Providers → Google, keep Google enabled and configure its Client ID and Client Secret. Google Cloud's authorized callback URL must be:
+
+```text
+https://YOUR_PROJECT_ID.supabase.co/auth/v1/callback
+```
 
 ## Before production
 
