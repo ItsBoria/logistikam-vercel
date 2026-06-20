@@ -10,7 +10,6 @@ import {
 import { useEffect, useState, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
-import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Toaster } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { PageTransition } from "@/components/page-transition";
@@ -32,9 +31,6 @@ function NotFoundComponent() {
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   const router = useRouter();
-  useEffect(() => {
-    reportLovableError(error, { boundary: "tanstack_root_error_component" });
-  }, [error]);
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
@@ -62,16 +58,16 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "twitter:title", content: "מערכת הזמנות פלוגתיות" },
       { property: "og:description", content: "מערכת ניהול הזמנות פלוגתיות" },
       { name: "twitter:description", content: "מערכת ניהול הזמנות פלוגתיות" },
-      { property: "og:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/BV2Su5tIYxVlx5KcreKgOIjbCzB3/social-images/social-1780643778081-DCD60187-0740-4BBC-B537-E678FAE5997F.webp" },
-      { name: "twitter:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/BV2Su5tIYxVlx5KcreKgOIjbCzB3/social-images/social-1780643778081-DCD60187-0740-4BBC-B537-E678FAE5997F.webp" },
-      { name: "twitter:card", content: "summary_large_image" },
+      { property: "og:image", content: "/logikam-logo.svg" },
+      { name: "twitter:image", content: "/logikam-logo.svg" },
+      { name: "twitter:card", content: "summary" },
       { property: "og:type", content: "website" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
       { rel: "manifest", href: "/manifest.webmanifest" },
-      { rel: "icon", href: "/__l5e/assets-v1/0dab312d-233f-4836-8a79-b01fbd5cb8ba/logikam-logo.png", type: "image/png" },
-      { rel: "apple-touch-icon", href: "/__l5e/assets-v1/0dab312d-233f-4836-8a79-b01fbd5cb8ba/logikam-logo.png" },
+      { rel: "icon", href: "/logikam-logo.svg", type: "image/svg+xml" },
+      { rel: "apple-touch-icon", href: "/logikam-logo.svg" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800&display=swap" },
