@@ -131,22 +131,21 @@ function CartPill({ pin }: { pin: string }) {
           סל · {itemCount} · {formatPillCurrency(cartTotal)}
         </span>
         {hasBudget ? (
-          <span className={[
-            "text-[9px] sm:text-[10px] tabular-nums whitespace-nowrap",
-            tone === "normal" && hasCart ? "text-primary-foreground/80" : "opacity-80",
-          ].join(" ")}>
-            {isOverBudget ? (
-              <>
-                <span className="hidden sm:inline">חריגה של {formatPillCurrency(exceededBy)} מתוך {formatPillCurrency(totalBudget)}</span>
-                <span className="sm:hidden">חריגה {formatPillCurrency(exceededBy)} · {formatPillCurrency(totalBudget)}</span>
-              </>
-            ) : (
-              <>
-                <span className="hidden sm:inline">נותרו {formatPillCurrency(remaining)} מתוך {formatPillCurrency(totalBudget)}</span>
-                <span className="sm:hidden">{formatPillCurrency(remaining)} / {formatPillCurrency(totalBudget)}</span>
-              </>
-            )}
-          </span>
+          isOverBudget ? (
+            <span className="text-[9px] sm:text-[10px] tabular-nums whitespace-nowrap" dir="rtl">
+              <span className="text-foreground/65">תקציב {formatPillCurrency(totalBudget)}</span>
+              <span aria-hidden> · </span>
+              <strong className="font-extrabold text-destructive">חריגה {formatPillCurrency(exceededBy)}</strong>
+            </span>
+          ) : (
+            <span className={[
+              "text-[9px] sm:text-[10px] tabular-nums whitespace-nowrap",
+              tone === "normal" && hasCart ? "text-primary-foreground/80" : "opacity-80",
+            ].join(" ")}>
+              <span className="hidden sm:inline">נותרו {formatPillCurrency(remaining)} מתוך {formatPillCurrency(totalBudget)}</span>
+              <span className="sm:hidden">{formatPillCurrency(remaining)} / {formatPillCurrency(totalBudget)}</span>
+            </span>
+          )
         ) : (
           <span className={[
             "text-[9px] sm:text-[10px] whitespace-nowrap",
