@@ -102,17 +102,13 @@ export async function downloadWeeklyPDF(
 
   // --- Header (centered) ---
   pdf.setFont("Heebo", "bold"); pdf.setFontSize(20);
-  pdf.text(brandName, pageW / 2, margin + 14, { align: "center" } as any);
+  drawVisual(pdf, brandName, pageW / 2, margin + 14, "center");
   pdf.setFontSize(13);
-  pdf.text(`שבוע ${week.week} | ${monthName} ${week.year}`, pageW / 2, margin + 34, {
-    align: "center",
-  } as any);
+  drawVisual(pdf, `שבוע ${week.week} | ${monthName} ${week.year}`, pageW / 2, margin + 34, "center");
 
   // optional quote line (per the paper form)
   pdf.setFont("Heebo", "normal"); pdf.setFontSize(8); pdf.setTextColor(110);
-  pdf.text(`״ובחצי הלילה הם קמו והכו בקצה עולם.״`, pageW - margin, margin + 50, {
-    align: "right",
-  } as any);
+  drawVisual(pdf, `״ובחצי הלילה הם קמו והכו בקצה עולם.״`, pageW - margin, margin + 50, "right");
   pdf.setTextColor(20);
 
   // --- Table layout (RTL columns) ---
