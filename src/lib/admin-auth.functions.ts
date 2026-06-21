@@ -11,7 +11,9 @@ function synthEmail(username: string) {
 export const adminAuthStatus = createServerFn({ method: "GET" }).handler(async () => {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { count } = await supabaseAdmin
-    .from("user_roles").select("*", { count: "exact", head: true }).eq("role", "admin");
+    .from("user_roles").select("*", { count: "exact", head: true })
+    .eq("is_active", true)
+    .in("role", ["OWNER", "WORK_MANAGER", "ADMIN", "admin", "staff"]);
   return { needsBootstrap: (count ?? 0) === 0 };
 });
 
@@ -44,7 +46,9 @@ export const resolveAdminEmail = createServerFn({ method: "POST" })
     if (byMeta) return { email: byMeta.email! };
 
     // Legacy: admin whose email local-part matches the username
-    const { data: roles } = await supabaseAdmin.from("user_roles").select("user_id").eq("role", "admin");
+    const { data: roles } = await supabaseAdmin.from("user_roles").select("user_id")
+      .eq("is_active", true)
+      .in("role", ["OWNER", "WORK_MANAGER", "ADMIN", "admin", "staff"]);
     const adminIds = new Set((roles ?? []).map((r: any) => r.user_id));
     const legacy = users.find(
       (u) => adminIds.has(u.id) && ((u.email || "").split("@")[0] || "").toLowerCase() === lower,

@@ -16,11 +16,24 @@ export const ROLE_LABEL: Record<RoleCode, string> = {
 
 export async function getUserRole(userId: string): Promise<RoleCode> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data, error } = await (supabaseAdmin as any).rpc("current_role_code", { _user_id: userId });
+  const { data, error } = await supabaseAdmin
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", userId)
+    .eq("is_active", true);
   if (error) throw new Error(error.message);
-  const value = String(data || "USER").toUpperCase();
-  if (value === "OWNER" || value === "WORK_MANAGER" || value === "ADMIN") return value;
-  return "USER";
+
+  let highest: RoleCode = "USER";
+  for (const row of data ?? []) {
+    const raw = String(row.role || "").toUpperCase();
+    const role: RoleCode =
+      raw === "OWNER" ? "OWNER" :
+      raw === "WORK_MANAGER" ? "WORK_MANAGER" :
+      raw === "ADMIN" || raw === "STAFF" ? "ADMIN" :
+      "USER";
+    if (ROLE_LEVEL[role] > ROLE_LEVEL[highest]) highest = role;
+  }
+  return highest;
 }
 
 export async function assertMinRole(userId: string, minimum: Exclude<RoleCode, "USER">) {
