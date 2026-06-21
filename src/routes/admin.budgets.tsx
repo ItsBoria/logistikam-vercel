@@ -13,7 +13,7 @@ import { getBudgetManagement, resetTeamBudget } from "@/lib/budget.functions";
 import { formatCurrency } from "@/lib/pricing";
 import { toast } from "sonner";
 
-export const Route = createFileRoute("/admin/budgets" as any)({
+export const Route = createFileRoute("/admin/budgets")({
   ssr: false,
   head: () => ({ meta: [{ title: "תקציבים ואיפוסים" }] }),
   component: () => <AdminShell><BudgetPage /></AdminShell>,

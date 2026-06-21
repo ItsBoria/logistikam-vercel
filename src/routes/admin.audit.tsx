@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { listAuditLog } from "@/lib/audit.functions";
 
-export const Route = createFileRoute("/admin/audit" as any)({
+export const Route = createFileRoute("/admin/audit")({
   ssr: false,
   head: () => ({ meta: [{ title: "יומן פעילות" }] }),
   component: () => <AdminShell adminOnly><AuditPage /></AdminShell>,

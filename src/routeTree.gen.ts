@@ -26,6 +26,8 @@ import { Route as AdminOrdersRouteImport } from './routes/admin.orders'
 import { Route as AdminNotificationsRouteImport } from './routes/admin.notifications'
 import { Route as AdminLoginRouteImport } from './routes/admin.login'
 import { Route as AdminCalendarRouteImport } from './routes/admin.calendar'
+import { Route as AdminBudgetsRouteImport } from './routes/admin.budgets'
+import { Route as AdminAuditRouteImport } from './routes/admin.audit'
 
 const SelectTeamRoute = SelectTeamRouteImport.update({
   id: '/select-team',
@@ -113,10 +115,22 @@ const AdminCalendarRoute = AdminCalendarRouteImport.update({
   path: '/admin/calendar',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminBudgetsRoute = AdminBudgetsRouteImport.update({
+  id: '/admin/budgets',
+  path: '/admin/budgets',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminAuditRoute = AdminAuditRouteImport.update({
+  id: '/admin/audit',
+  path: '/admin/audit',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/select-team': typeof SelectTeamRoute
+  '/admin/audit': typeof AdminAuditRoute
+  '/admin/budgets': typeof AdminBudgetsRoute
   '/admin/calendar': typeof AdminCalendarRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/notifications': typeof AdminNotificationsRoute
@@ -136,6 +150,8 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/select-team': typeof SelectTeamRoute
+  '/admin/audit': typeof AdminAuditRoute
+  '/admin/budgets': typeof AdminBudgetsRoute
   '/admin/calendar': typeof AdminCalendarRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/notifications': typeof AdminNotificationsRoute
@@ -156,6 +172,8 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/select-team': typeof SelectTeamRoute
+  '/admin/audit': typeof AdminAuditRoute
+  '/admin/budgets': typeof AdminBudgetsRoute
   '/admin/calendar': typeof AdminCalendarRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/notifications': typeof AdminNotificationsRoute
@@ -177,6 +195,8 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/select-team'
+    | '/admin/audit'
+    | '/admin/budgets'
     | '/admin/calendar'
     | '/admin/login'
     | '/admin/notifications'
@@ -196,6 +216,8 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/select-team'
+    | '/admin/audit'
+    | '/admin/budgets'
     | '/admin/calendar'
     | '/admin/login'
     | '/admin/notifications'
@@ -215,6 +237,8 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/select-team'
+    | '/admin/audit'
+    | '/admin/budgets'
     | '/admin/calendar'
     | '/admin/login'
     | '/admin/notifications'
@@ -235,6 +259,8 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SelectTeamRoute: typeof SelectTeamRoute
+  AdminAuditRoute: typeof AdminAuditRoute
+  AdminBudgetsRoute: typeof AdminBudgetsRoute
   AdminCalendarRoute: typeof AdminCalendarRoute
   AdminLoginRoute: typeof AdminLoginRoute
   AdminNotificationsRoute: typeof AdminNotificationsRoute
@@ -373,12 +399,28 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCalendarRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/budgets': {
+      id: '/admin/budgets'
+      path: '/admin/budgets'
+      fullPath: '/admin/budgets'
+      preLoaderRoute: typeof AdminBudgetsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/audit': {
+      id: '/admin/audit'
+      path: '/admin/audit'
+      fullPath: '/admin/audit'
+      preLoaderRoute: typeof AdminAuditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SelectTeamRoute: SelectTeamRoute,
+  AdminAuditRoute: AdminAuditRoute,
+  AdminBudgetsRoute: AdminBudgetsRoute,
   AdminCalendarRoute: AdminCalendarRoute,
   AdminLoginRoute: AdminLoginRoute,
   AdminNotificationsRoute: AdminNotificationsRoute,
