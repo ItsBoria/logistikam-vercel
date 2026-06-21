@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable";
 import { useSupabaseSession } from "@/hooks/use-supabase-session";
 import { useAdminRoles } from "@/hooks/use-admin-roles";
 import { getMyTeamContext, claimAdminWithLegacyCreds } from "@/lib/membership.functions";
@@ -90,22 +89,30 @@ function GoogleButton() {
   async function onClick() {
     setLoading(true);
     try {
-      const result = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: window.location.origin,
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/`,
+          queryParams: { prompt: "select_account" },
+        },
       });
-      if (result.error) {
-        toast.error((result.error as any).message || "שגיאת התחברות");
+      if (error) {
+        toast.error(error.message || "שגיאת התחברות");
         setLoading(false);
-        return;
       }
-      // result.redirected → browser navigates away
     } catch (e: any) {
       toast.error(e.message || "שגיאת התחברות");
       setLoading(false);
     }
   }
   return (
-    <Button type="button" onClick={onClick} disabled={loading} variant="outline" className="w-full h-11 gap-2">
+    <Button
+      type="button"
+      onClick={onClick}
+      disabled={loading}
+      variant="outline"
+      className="w-full h-11 gap-2"
+    >
       {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <GoogleIcon />}
       התחברות עם Google
     </Button>
@@ -125,7 +132,8 @@ function EmailAuthForm() {
     try {
       if (mode === "signup") {
         const { error } = await supabase.auth.signUp({
-          email, password,
+          email,
+          password,
           options: {
             emailRedirectTo: window.location.origin,
             data: { full_name: name || email.split("@")[0] },
@@ -154,21 +162,43 @@ function EmailAuthForm() {
       )}
       <div>
         <label className="block text-sm font-medium mb-1">אימייל</label>
-        <Input type="email" dir="ltr" autoComplete="email" required
-          value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" />
+        <Input
+          type="email"
+          dir="ltr"
+          autoComplete="email"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="name@example.com"
+        />
       </div>
       <div>
         <label className="block text-sm font-medium mb-1">סיסמה</label>
-        <Input type="password" dir="ltr" required minLength={mode === "signup" ? 8 : 1}
+        <Input
+          type="password"
+          dir="ltr"
+          required
+          minLength={mode === "signup" ? 8 : 1}
           autoComplete={mode === "signup" ? "new-password" : "current-password"}
-          value={password} onChange={(e) => setPassword(e.target.value)} />
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
       </div>
       <Button type="submit" disabled={loading} className="w-full h-11">
-        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : mode === "signup" ? "יצירת חשבון" : "כניסה"}
+        {loading ? (
+          <Loader2 className="w-4 h-4 animate-spin" />
+        ) : mode === "signup" ? (
+          "יצירת חשבון"
+        ) : (
+          "כניסה"
+        )}
       </Button>
       <div className="text-xs text-center">
-        <button type="button" className="text-primary hover:underline"
-          onClick={() => setMode(mode === "signin" ? "signup" : "signin")}>
+        <button
+          type="button"
+          className="text-primary hover:underline"
+          onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
+        >
           {mode === "signin" ? "אין לך חשבון? הירשם/י" : "כבר יש לך חשבון? התחבר/י"}
         </button>
       </div>
@@ -186,8 +216,7 @@ function ClaimAdminLink() {
 
   if (!open) {
     return (
-      <button type="button" className="text-primary hover:underline"
-        onClick={() => setOpen(true)}>
+      <button type="button" className="text-primary hover:underline" onClick={() => setOpen(true)}>
         קישור חשבון מנהל קיים
       </button>
     );
@@ -195,7 +224,10 @@ function ClaimAdminLink() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!session) { toast.error("התחבר/י קודם עם Google או אימייל"); return; }
+    if (!session) {
+      toast.error("התחבר/י קודם עם Google או אימייל");
+      return;
+    }
     setLoading(true);
     try {
       await claimFn({ data: { identifier: u, password: p } });
@@ -203,21 +235,37 @@ function ClaimAdminLink() {
       window.location.reload();
     } catch (e: any) {
       toast.error(e.message || "שגיאה");
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
     <form onSubmit={onSubmit} className="mt-3 space-y-2 text-right">
       <p className="text-[11px] text-muted-foreground">
-        התחבר/י קודם עם Google או אימייל, ואז הזן/י את פרטי חשבון המנהל הקיים שלך כדי להעביר את ההרשאה לחשבון החדש.
+        התחבר/י קודם עם Google או אימייל, ואז הזן/י את פרטי חשבון המנהל הקיים שלך כדי להעביר את
+        ההרשאה לחשבון החדש.
       </p>
-      <Input placeholder="שם משתמש מנהל קיים" dir="ltr" value={u} onChange={(e) => setU(e.target.value)} />
-      <Input placeholder="סיסמה" dir="ltr" type="password" value={p} onChange={(e) => setP(e.target.value)} />
+      <Input
+        placeholder="שם משתמש מנהל קיים"
+        dir="ltr"
+        value={u}
+        onChange={(e) => setU(e.target.value)}
+      />
+      <Input
+        placeholder="סיסמה"
+        dir="ltr"
+        type="password"
+        value={p}
+        onChange={(e) => setP(e.target.value)}
+      />
       <div className="flex gap-2">
         <Button type="submit" disabled={loading || !session} size="sm" className="flex-1">
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "קשר חשבון"}
         </Button>
-        <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>בטל</Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
+          בטל
+        </Button>
       </div>
     </form>
   );
@@ -226,7 +274,10 @@ function ClaimAdminLink() {
 function GoogleIcon() {
   return (
     <svg viewBox="0 0 24 24" className="w-4 h-4" aria-hidden="true">
-      <path fill="#EA4335" d="M12 10.2v3.9h5.5c-.24 1.5-1.7 4.4-5.5 4.4-3.3 0-6-2.7-6-6.1s2.7-6.1 6-6.1c1.9 0 3.2.8 3.9 1.5l2.7-2.6C16.8 3.7 14.6 2.8 12 2.8 6.9 2.8 2.8 6.9 2.8 12s4.1 9.2 9.2 9.2c5.3 0 8.8-3.7 8.8-9 0-.6-.1-1.1-.2-1.6H12z"/>
+      <path
+        fill="#EA4335"
+        d="M12 10.2v3.9h5.5c-.24 1.5-1.7 4.4-5.5 4.4-3.3 0-6-2.7-6-6.1s2.7-6.1 6-6.1c1.9 0 3.2.8 3.9 1.5l2.7-2.6C16.8 3.7 14.6 2.8 12 2.8 6.9 2.8 2.8 6.9 2.8 12s4.1 9.2 9.2 9.2c5.3 0 8.8-3.7 8.8-9 0-.6-.1-1.1-.2-1.6H12z"
+      />
     </svg>
   );
 }

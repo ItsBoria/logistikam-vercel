@@ -1,6 +1,6 @@
 {
-  "name": "Logikam",
-  "short_name": "Logikam",
+  "name": "LogistikaM",
+  "short_name": "LogistikaM",
   "description": "מערכת הזמנות לצוותים",
   "start_url": "/shop",
   "scope": "/",
@@ -11,7 +11,17 @@
   "dir": "rtl",
   "lang": "he",
   "icons": [
-    { "src": "/__l5e/assets-v1/0dab312d-233f-4836-8a79-b01fbd5cb8ba/logikam-logo.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/__l5e/assets-v1/0dab312d-233f-4836-8a79-b01fbd5cb8ba/logikam-logo.png", "sizes": "192x192", "type": "image/png", "purpose": "any" }
+    {
+      "src": "/__l5e/assets-v1/0dab312d-233f-4836-8a79-b01fbd5cb8ba/logikam-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/__l5e/assets-v1/0dab312d-233f-4836-8a79-b01fbd5cb8ba/logikam-logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    }
   ]
 }

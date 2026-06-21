@@ -1,8 +1,8 @@
 // Loads the Heebo TTF and registers it on a jsPDF instance so Hebrew renders.
-import HeeboUrl from "@/assets/fonts/Heebo.ttf?url";
-import type jsPDF from "jspdf";
+import type { jsPDF } from "jspdf";
 
 let cached: string | null = null;
+const HeeboUrl = new URL("../assets/fonts/Heebo.ttf", import.meta.url).href;
 
 async function loadHeeboBase64(): Promise<string> {
   if (cached) return cached;

@@ -23,7 +23,12 @@ function NotFoundComponent() {
       <div className="max-w-md text-center">
         <h1 className="text-7xl font-bold">404</h1>
         <p className="mt-4 text-muted-foreground">העמוד לא נמצא</p>
-        <Link to="/" className="mt-6 inline-flex rounded-md bg-primary px-4 py-2 text-primary-foreground">חזרה לדף הבית</Link>
+        <Link
+          to="/"
+          className="mt-6 inline-flex rounded-md bg-primary px-4 py-2 text-primary-foreground"
+        >
+          חזרה לדף הבית
+        </Link>
       </div>
     </div>
   );
@@ -41,7 +46,10 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
         <h1 className="text-xl font-semibold">משהו השתבש</h1>
         <p className="mt-2 text-sm text-muted-foreground">{error.message}</p>
         <button
-          onClick={() => { router.invalidate(); reset(); }}
+          onClick={() => {
+            router.invalidate();
+            reset();
+          }}
           className="mt-6 rounded-md bg-primary px-4 py-2 text-primary-foreground"
         >
           נסה שוב
@@ -56,25 +64,44 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "מערכת הזמנות פלוגתיות" },
-      { name: "description", content: "מערכת ניהול הזמנות פלוגתיות" },
-      { property: "og:title", content: "מערכת הזמנות פלוגתיות" },
-      { name: "twitter:title", content: "מערכת הזמנות פלוגתיות" },
+      { title: "LogistikaM" },
+      { name: "application-name", content: "LogistikaM" },
+      { name: "description", content: "LogistikaM · מערכת ניהול הזמנות פלוגתיות" },
+      { property: "og:title", content: "LogistikaM" },
+      { name: "twitter:title", content: "LogistikaM" },
       { property: "og:description", content: "מערכת ניהול הזמנות פלוגתיות" },
       { name: "twitter:description", content: "מערכת ניהול הזמנות פלוגתיות" },
-      { property: "og:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/BV2Su5tIYxVlx5KcreKgOIjbCzB3/social-images/social-1780643778081-DCD60187-0740-4BBC-B537-E678FAE5997F.webp" },
-      { name: "twitter:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/BV2Su5tIYxVlx5KcreKgOIjbCzB3/social-images/social-1780643778081-DCD60187-0740-4BBC-B537-E678FAE5997F.webp" },
+      {
+        property: "og:image",
+        content:
+          "https://storage.googleapis.com/gpt-engineer-file-uploads/BV2Su5tIYxVlx5KcreKgOIjbCzB3/social-images/social-1780643778081-DCD60187-0740-4BBC-B537-E678FAE5997F.webp",
+      },
+      {
+        name: "twitter:image",
+        content:
+          "https://storage.googleapis.com/gpt-engineer-file-uploads/BV2Su5tIYxVlx5KcreKgOIjbCzB3/social-images/social-1780643778081-DCD60187-0740-4BBC-B537-E678FAE5997F.webp",
+      },
       { name: "twitter:card", content: "summary_large_image" },
       { property: "og:type", content: "website" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
       { rel: "manifest", href: "/manifest.webmanifest" },
-      { rel: "icon", href: "/__l5e/assets-v1/0dab312d-233f-4836-8a79-b01fbd5cb8ba/logikam-logo.png", type: "image/png" },
-      { rel: "apple-touch-icon", href: "/__l5e/assets-v1/0dab312d-233f-4836-8a79-b01fbd5cb8ba/logikam-logo.png" },
+      {
+        rel: "icon",
+        href: "/__l5e/assets-v1/0dab312d-233f-4836-8a79-b01fbd5cb8ba/logikam-logo.png",
+        type: "image/png",
+      },
+      {
+        rel: "apple-touch-icon",
+        href: "/__l5e/assets-v1/0dab312d-233f-4836-8a79-b01fbd5cb8ba/logikam-logo.png",
+      },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-      { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800&display=swap" },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800&display=swap",
+      },
     ],
   }),
   shellComponent: RootShell,
@@ -86,7 +113,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 function RootShell({ children }: { children: ReactNode }) {
   return (
     <html lang="he" dir="rtl">
-      <head><HeadContent /></head>
+      <head>
+        <HeadContent />
+      </head>
       <body>
         {children}
         <Scripts />
@@ -125,7 +154,9 @@ function AuthSync() {
   const router = useRouter();
   const qc = useQueryClient();
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
       if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED") {
         return;
       }
