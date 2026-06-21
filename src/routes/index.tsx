@@ -7,7 +7,6 @@ import { useSupabaseSession } from "@/hooks/use-supabase-session";
 import { useAdminRoles } from "@/hooks/use-admin-roles";
 import {
   getMyTeamContext,
-  claimAdminWithLegacyCreds,
   claimConfiguredFirstAdmin,
 } from "@/lib/membership.functions";
 import { setTeamSession, setAdminActing } from "@/lib/team-session";
@@ -103,9 +102,6 @@ function Home() {
             <div className="h-px bg-border flex-1" /> או <div className="h-px bg-border flex-1" />
           </div>
           <EmailAuthForm />
-          <div className="text-xs text-center text-muted-foreground pt-2">
-            מנהל קיים? <ClaimAdminLink />
-          </div>
         </Card>
       </div>
     </div>
@@ -194,53 +190,6 @@ function EmailAuthForm() {
           onClick={() => setMode(mode === "signin" ? "signup" : "signin")}>
           {mode === "signin" ? "אין לך חשבון? הירשם/י" : "כבר יש לך חשבון? התחבר/י"}
         </button>
-      </div>
-    </form>
-  );
-}
-
-function ClaimAdminLink() {
-  const { session } = useSupabaseSession();
-  const claimFn = useServerFn(claimAdminWithLegacyCreds);
-  const [open, setOpen] = useState(false);
-  const [u, setU] = useState("");
-  const [p, setP] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  if (!open) {
-    return (
-      <button type="button" className="text-primary hover:underline"
-        onClick={() => setOpen(true)}>
-        קישור חשבון מנהל קיים
-      </button>
-    );
-  }
-
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!session) { toast.error("התחבר/י קודם עם Google או אימייל"); return; }
-    setLoading(true);
-    try {
-      await claimFn({ data: { identifier: u, password: p } });
-      toast.success("חשבונך שודרג למנהל");
-      window.location.reload();
-    } catch (e: any) {
-      toast.error(e.message || "שגיאה");
-    } finally { setLoading(false); }
-  }
-
-  return (
-    <form onSubmit={onSubmit} className="mt-3 space-y-2 text-right">
-      <p className="text-[11px] text-muted-foreground">
-        התחבר/י קודם עם Google או אימייל, ואז הזן/י את פרטי חשבון המנהל הקיים שלך כדי להעביר את ההרשאה לחשבון החדש.
-      </p>
-      <Input placeholder="שם משתמש מנהל קיים" dir="ltr" value={u} onChange={(e) => setU(e.target.value)} />
-      <Input placeholder="סיסמה" dir="ltr" type="password" value={p} onChange={(e) => setP(e.target.value)} />
-      <div className="flex gap-2">
-        <Button type="submit" disabled={loading || !session} size="sm" className="flex-1">
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "קשר חשבון"}
-        </Button>
-        <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>בטל</Button>
       </div>
     </form>
   );

@@ -36,6 +36,11 @@ const EVENTS = [
   ["low_stock", "מלאי נמוך", "מוצר ירד מתחת לסף"],
   ["out_of_stock", "מוצר אזל", "המלאי הגיע לאפס"],
   ["replacement_request", "בקשת החלפה", "בקשה חדשה מצוות"],
+  ["budget_reset_completed", "איפוס תקציב הושלם", "נפתחה תקופת תקציב חדשה"],
+  ["budget_reset_failed", "איפוס תקציב נכשל", "נדרשת בדיקה של איפוס התקציב"],
+  ["calendar_awaiting_signature", "לוח ממתין לחתימה", "לוח עבודה ממתין לאישור"],
+  ["calendar_approved", "לוח אושר", "לוח עבודה נחתם ואושר"],
+  ["calendar_rejected", "לוח נדחה", "לוח עבודה הוחזר לתיקון"],
   ["system_alert", "התראת מערכת", "אירוע תפעולי חשוב"],
 ] as const;
 type EventKey = (typeof EVENTS)[number][0];

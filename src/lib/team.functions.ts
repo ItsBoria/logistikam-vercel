@@ -43,18 +43,39 @@ export const getShopData = createServerFn({ method: "POST" })
       .from("teams").select("id, name, monthly_limit, contact_phone")
       .eq("pin", data.pin.trim()).eq("active", true).maybeSingle();
     if (!team) throw new Error("צוות לא תקין");
-    const [{ data: products }, { data: spent }] = await Promise.all([
+    const [{ data: products }, { data: spent }, { data: period }] = await Promise.all([
       supabaseAdmin.from("products").select("*").eq("active", true).order("name"),
       supabaseAdmin.rpc("team_month_spent", { _team_id: team.id }),
+      (supabaseAdmin as any).from("budget_periods")
+        .select("id, policy_id, starting_budget, carry_over_amount, starts_at, ends_at")
+        .eq("team_id", team.id).eq("status", "active").maybeSingle(),
     ]);
+    const { data: policy } = period?.policy_id
+      ? await (supabaseAdmin as any).from("budget_policies")
+          .select("reset_mode, next_reset_at, timezone, carry_over_mode")
+          .eq("id", period.policy_id).maybeSingle()
+      : { data: null };
+    const allocatedBudget = period
+      ? Number(period.starting_budget) + Number(period.carry_over_amount)
+      : Number(team.monthly_limit);
     const resolved = await resolveProductImages(supabaseAdmin, products ?? []);
     return {
-      team,
+      team: { ...team, monthly_limit: allocatedBudget },
       products: resolved.map((product) => ({
         ...product,
         price: addVat(Number(product.price)),
       })),
       spent: Number(spent ?? 0),
+      budget: {
+        period_id: period?.id ?? null,
+        allocated: allocatedBudget,
+        starts_at: period?.starts_at ?? null,
+        ends_at: period?.ends_at ?? null,
+        reset_mode: policy?.reset_mode ?? "monthly",
+        next_reset_at: policy?.next_reset_at ?? null,
+        timezone: policy?.timezone ?? "Asia/Jerusalem",
+        carry_over_mode: policy?.carry_over_mode ?? "none",
+      },
     };
   });
 
@@ -99,8 +120,11 @@ export const placeOrder = createServerFn({ method: "POST" })
     const spent = Number(spentResp ?? 0);
     const limit = Number(team.monthly_limit);
 
-    const requiresApproval = limit > 0 && spent + total > limit;
-    const status = requiresApproval ? "awaiting_approval" : "pending";
+    if (limit > 0 && spent + total > limit) {
+      const exceededBy = spent + total - limit;
+      throw new Error(`ההזמנה חורגת מהתקציב ב-₪${Math.ceil(exceededBy).toLocaleString("he-IL")}`);
+    }
+    const status = "pending";
 
     const { data: order, error: orderErr } = await supabaseAdmin
       .from("orders")
@@ -121,8 +145,7 @@ export const placeOrder = createServerFn({ method: "POST" })
       .insert(orderItems.map(it => ({ ...it, order_id: order.id })));
     if (itemsErr) throw new Error(itemsErr.message);
 
-    if (!requiresApproval) {
-      for (const it of orderItems) {
+    for (const it of orderItems) {
         const p = products.find(x => x.id === it.product_id)!;
         const newStock = p.stock - it.quantity;
         await supabaseAdmin.from("products").update({ stock: newStock }).eq("id", p.id);
@@ -147,7 +170,6 @@ export const placeOrder = createServerFn({ method: "POST" })
         } catch (e: any) {
           console.warn("[low stock notify on order] failed:", e?.message);
         }
-      }
     }
 
     // Notify admins about the new order (best-effort, async).
@@ -155,19 +177,11 @@ export const placeOrder = createServerFn({ method: "POST" })
       const { sendPushToAdmins } = await import("./admin-push.server");
       const itemsLine = orderItems.map((i) => `${i.name}×${i.quantity}`).join(", ");
       const trimmed = itemsLine.length > 120 ? itemsLine.slice(0, 117) + "..." : itemsLine;
-      if (requiresApproval) {
-        await sendPushToAdmins("order_awaiting_approval", {
-          title: "הזמנה ממתינה לאישור",
-          body: `${data.ordered_by_name}: ₪${total.toFixed(0)} — ${trimmed}`,
-          url: "/admin/orders",
-        });
-      } else {
-        await sendPushToAdmins("order_created", {
-          title: "הזמנה חדשה",
-          body: `${data.ordered_by_name}: ₪${total.toFixed(0)} — ${trimmed}`,
-          url: "/admin/orders",
-        });
-      }
+      await sendPushToAdmins("order_created", {
+        title: "הזמנה חדשה",
+        body: `${data.ordered_by_name}: ₪${total.toFixed(0)} — ${trimmed}`,
+        url: "/admin/orders",
+      });
     } catch (e: any) {
       console.warn("[admin notify new order] failed:", e?.message);
     }
@@ -202,7 +216,7 @@ export const placeOrder = createServerFn({ method: "POST" })
       }
     }
 
-    return { order_id: order.id, status, requires_approval: requiresApproval, total };
+    return { order_id: order.id, status, requires_approval: false, total };
   });
 
 // Build a cart suggestion from a previous order — returns available items + a list of skipped ones.

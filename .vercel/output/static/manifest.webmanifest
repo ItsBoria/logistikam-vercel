@@ -1,0 +1,16 @@
+{
+  "name": "Logikam",
+  "short_name": "Logikam",
+  "description": "מערכת הזמנות לצוותים",
+  "start_url": "/shop",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#1d3df0",
+  "dir": "rtl",
+  "lang": "he",
+  "icons": [
+    { "src": "/logikam-logo.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

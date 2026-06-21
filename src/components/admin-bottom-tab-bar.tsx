@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard, ShoppingBag, Package, Boxes, Users,
-  MoreHorizontal, Replace, Bell, UserCog, CalendarDays, Settings2,
+  MoreHorizontal, Replace, Bell, UserCog, CalendarDays, Settings2, WalletCards, ClipboardList,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { getAdminDashboard } from "@/lib/admin-dashboard.functions";
@@ -79,10 +79,26 @@ function Tab({ item, active, badge }: { item: Item; active: boolean; badge?: num
   );
 }
 
-export function AdminBottomTabBar({ role }: { role: "admin" | "staff" }) {
+export function AdminBottomTabBar({ role }: { role: "OWNER" | "WORK_MANAGER" | "ADMIN" }) {
   const isActive = useIsActive();
   const [moreOpen, setMoreOpen] = useState(false);
-  const isAdmin = role === "admin";
+  const isAdmin = true;
+  const canManageBudgets = role === "OWNER" || role === "WORK_MANAGER";
+  const mainItems = ADMIN_MAIN.filter((item) => {
+    if (item.to === "/admin/users") return role === "OWNER";
+    if (item.to === "/admin/teams") return canManageBudgets;
+    return true;
+  });
+  const moreItems = [
+    ...(role === "OWNER" ? [
+      { to: "/admin/audit", label: "יומן פעילות", icon: ClipboardList },
+    ] : []),
+    ...(canManageBudgets ? [
+      { to: "/admin/budgets", label: "תקציבים", icon: WalletCards },
+      { to: "/admin/calendar", label: "תכנית שבועית", icon: CalendarDays },
+    ] : []),
+    ...ADMIN_MORE.filter((item) => item.to !== "/admin/calendar"),
+  ];
 
   const dashFn = useServerFn(getAdminDashboard);
   const { data: dash } = useQuery({
@@ -95,8 +111,7 @@ export function AdminBottomTabBar({ role }: { role: "admin" | "staff" }) {
   const pendingBadge =
     (dash?.kpis?.pending ?? 0) + (dash?.kpis?.awaiting ?? 0);
 
-  const mainItems = isAdmin ? ADMIN_MAIN : STAFF_MAIN;
-  const moreActive = isAdmin && ADMIN_MORE.some((i) => isActive(i.to, i.exact));
+  const moreActive = moreItems.some((i) => isActive(i.to, i.exact));
 
   return (
     <>
@@ -146,7 +161,7 @@ export function AdminBottomTabBar({ role }: { role: "admin" | "staff" }) {
                   <SheetTitle>עוד</SheetTitle>
                 </SheetHeader>
                 <div className="grid grid-cols-3 gap-3 mt-4">
-                  {ADMIN_MORE.map((item) => {
+                  {moreItems.map((item) => {
                     const Icon = item.icon;
                     const active = isActive(item.to, item.exact);
                     return (

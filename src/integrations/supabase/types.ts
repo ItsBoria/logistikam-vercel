@@ -452,25 +452,34 @@ export type Database = {
       profiles: {
         Row: {
           created_at: string
+          deactivated_at: string | null
+          deactivated_by: string | null
           display_name: string | null
           email: string | null
           id: string
+          is_active: boolean
           is_approver: boolean
           updated_at: string
         }
         Insert: {
           created_at?: string
+          deactivated_at?: string | null
+          deactivated_by?: string | null
           display_name?: string | null
           email?: string | null
           id: string
+          is_active?: boolean
           is_approver?: boolean
           updated_at?: string
         }
         Update: {
           created_at?: string
+          deactivated_at?: string | null
+          deactivated_by?: string | null
           display_name?: string | null
           email?: string | null
           id?: string
+          is_active?: boolean
           is_approver?: boolean
           updated_at?: string
         }
@@ -714,20 +723,29 @@ export type Database = {
       }
       user_roles: {
         Row: {
+          assigned_at: string
+          assigned_by_user_id: string | null
           created_at: string
           id: string
+          is_active: boolean
           role: Database["public"]["Enums"]["app_role"]
           user_id: string
         }
         Insert: {
+          assigned_at?: string
+          assigned_by_user_id?: string | null
           created_at?: string
           id?: string
+          is_active?: boolean
           role: Database["public"]["Enums"]["app_role"]
           user_id: string
         }
         Update: {
+          assigned_at?: string
+          assigned_by_user_id?: string | null
           created_at?: string
           id?: string
+          is_active?: boolean
           role?: Database["public"]["Enums"]["app_role"]
           user_id?: string
         }
@@ -749,7 +767,7 @@ export type Database = {
       team_month_spent: { Args: { _team_id: string }; Returns: number }
     }
     Enums: {
-      app_role: "admin" | "staff"
+      app_role: "admin" | "staff" | "OWNER" | "WORK_MANAGER" | "ADMIN" | "USER"
       order_status:
         | "pending"
         | "approved"
@@ -886,7 +904,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "staff"],
+      app_role: ["admin", "staff", "OWNER", "WORK_MANAGER", "ADMIN", "USER"],
       order_status: [
         "pending",
         "approved",

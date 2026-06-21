@@ -92,6 +92,8 @@ function CartPill({ pin }: { pin: string }) {
       .channel(`shop-budget-${teamId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "teams", filter: `id=eq.${teamId}` }, refreshBudget)
       .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `team_id=eq.${teamId}` }, refreshBudget)
+      .on("postgres_changes", { event: "*", schema: "public", table: "budget_periods", filter: `team_id=eq.${teamId}` }, refreshBudget)
+      .on("postgres_changes", { event: "*", schema: "public", table: "budget_policies" }, refreshBudget)
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
@@ -111,6 +113,13 @@ function CartPill({ pin }: { pin: string }) {
   const isLowBudget = hasBudget && !isOverBudget && remaining / totalBudget < 0.2;
   const tone: PillTone = isOverBudget ? "error" : isLowBudget ? "warning" : "normal";
   const hasCart = itemCount > 0;
+  const resetLabel = data?.budget?.reset_mode === "manual"
+    ? "איפוס ידני"
+    : data?.budget?.reset_mode === "none"
+      ? "ללא איפוס אוטומטי"
+      : data?.budget?.next_reset_at
+        ? `איפוס ${new Date(data.budget.next_reset_at).toLocaleDateString("he-IL", { day: "numeric", month: "short" })}`
+        : "איפוס חודשי";
 
   const ariaLabel = hasBudget
     ? isOverBudget
@@ -154,6 +163,7 @@ function CartPill({ pin }: { pin: string }) {
             ללא מסגרת תקציב
           </span>
         )}
+        {hasBudget && <span className="text-[8px] whitespace-nowrap opacity-70">{resetLabel}</span>}
       </span>
     </PillBase>
   );

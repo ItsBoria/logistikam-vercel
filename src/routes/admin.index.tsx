@@ -14,6 +14,7 @@ import { formatCurrency } from "@/lib/pricing";
 import { Loader2, ShoppingBag, Clock, DollarSign, Users, AlertTriangle, Pencil, Check, X, Package, Replace, Settings, Timer, TrendingDown } from "lucide-react";
 import { toast } from "sonner";
 import { useAdminPreferences } from "@/hooks/use-admin-preferences";
+import type { DashboardWidget } from "@/lib/admin-preferences.functions";
 
 export const Route = createFileRoute("/admin/")({
   ssr: false,
@@ -104,8 +105,8 @@ function DashboardPage() {
     } catch (e: any) { toast.error(e.message || "שגיאה"); }
   }
 
-  const visible = (widget: string) => preferences?.visible_widgets?.includes(widget) ?? true;
-  const widgetOrder = (widget: string) => preferences?.widget_order?.indexOf(widget) ?? 0;
+  const visible = (widget: DashboardWidget) => preferences?.visible_widgets?.includes(widget) ?? true;
+  const widgetOrder = (widget: DashboardWidget) => preferences?.widget_order?.indexOf(widget) ?? 0;
 
   return (
     <div className="flex flex-col gap-6 admin-stagger">

@@ -110,7 +110,7 @@ function AdminShellInner({ session, roles, children }: { session: any; roles: an
         </div>
       </header>
       <main className="max-w-7xl mx-auto p-4 admin-main">{children}</main>
-      <AdminBottomTabBar role={roles.isAdmin ? "admin" : "staff"} />
+      <AdminBottomTabBar role={roles.role} />
     </div>
   );
 }

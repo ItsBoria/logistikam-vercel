@@ -31,10 +31,36 @@ CREATE TABLE IF NOT EXISTS public.admin_notification_prefs (
   PRIMARY KEY (user_id, event_type)
 );
 
+DROP POLICY IF EXISTS "users manage own notification prefs" ON public.admin_notification_prefs;
+DROP POLICY IF EXISTS "admins read all notification prefs" ON public.admin_notification_prefs;
+
+-- Repair CSV-created text IDs before policies compare them with auth.uid().
+DELETE FROM public.admin_notification_prefs pref
+WHERE NOT EXISTS (
+  SELECT 1 FROM auth.users account
+  WHERE account.id::text = pref.user_id::text
+);
+
+ALTER TABLE public.admin_notification_prefs
+  ALTER COLUMN user_id TYPE uuid USING user_id::text::uuid;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.admin_notification_prefs'::regclass
+      AND conname = 'admin_notification_prefs_user_id_fkey'
+  ) THEN
+    ALTER TABLE public.admin_notification_prefs
+      ADD CONSTRAINT admin_notification_prefs_user_id_fkey
+      FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+  END IF;
+END
+$$;
+
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.admin_notification_prefs TO authenticated;
 GRANT ALL ON public.admin_notification_prefs TO service_role;
 ALTER TABLE public.admin_notification_prefs ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "users manage own notification prefs" ON public.admin_notification_prefs;
 CREATE POLICY "users manage own notification prefs"
   ON public.admin_notification_prefs FOR ALL TO authenticated
   USING (user_id = auth.uid())

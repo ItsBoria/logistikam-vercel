@@ -1,15 +1,14 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { assertMinRole, assertOwner as assertSystemOwner, getUserRole } from "./authz.server";
 
 async function assertAdmin(ctx: { supabase: any; userId: string }) {
-  const { data, error } = await ctx.supabase.rpc("has_role", { _user_id: ctx.userId, _role: "admin" });
-  if (error) throw new Error(error.message);
-  if (!data) throw new Error("Forbidden");
+  return assertMinRole(ctx.userId, "WORK_MANAGER");
 }
 
 async function isApprover(ctx: { supabase: any; userId: string }) {
-  const { data } = await ctx.supabase.rpc("is_approver", { _user_id: ctx.userId });
-  return !!data;
+  const role = await getUserRole(ctx.userId);
+  return role === "OWNER" || role === "WORK_MANAGER";
 }
 
 export type MissionRow = {
@@ -57,7 +56,8 @@ export const listCalendarAdmins = createServerFn({ method: "GET" })
     await assertAdmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: roles } = await supabaseAdmin
-      .from("user_roles").select("user_id").eq("role", "admin");
+      .from("user_roles").select("user_id, role").eq("is_active", true)
+      .in("role", ["OWNER", "WORK_MANAGER"]);
     const ids = (roles ?? []).map((r: any) => r.user_id);
     if (!ids.length) return [] as AdminOption[];
     const { data: profs } = await supabaseAdmin
@@ -65,7 +65,7 @@ export const listCalendarAdmins = createServerFn({ method: "GET" })
     return (profs ?? []).map((p: any) => ({
       id: p.id,
       name: p.display_name || p.email || p.id.slice(0, 8),
-      is_approver: !!p.is_approver,
+      is_approver: true,
     })) as AdminOption[];
   });
 
@@ -73,7 +73,7 @@ export const setAdminApprover = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { user_id: string; is_approver: boolean }) => d)
   .handler(async ({ data, context }) => {
-    await assertAdmin(context);
+    await assertSystemOwner(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { error } = await supabaseAdmin
       .from("profiles").update({ is_approver: data.is_approver }).eq("id", data.user_id);
@@ -252,6 +252,7 @@ export const signMissionWeek = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
     const { supabase, userId } = context;
+    const signerRole = await getUserRole(userId);
     const name = data.signature_name.trim();
     if (!name) throw new Error("נדרש שם");
 
@@ -278,6 +279,24 @@ export const signMissionWeek = createServerFn({ method: "POST" })
     if (updated.author_signed_at && updated.approver_signed_at) {
       await supabase.from("mission_weeks").update({ locked: true }).eq("id", data.week_id);
     }
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    await (supabaseAdmin as any).from("calendar_approval_history").insert({
+      calendar_entry_id: data.week_id,
+      signer_user_id: userId,
+      signer_name: name,
+      signer_role: signerRole,
+      previous_status: "open",
+      new_status: updated.author_signed_at && updated.approver_signed_at ? "approved" : "partially_signed",
+      action: data.role === "approver" ? "approve" : "sign",
+    });
+    await (supabaseAdmin as any).from("audit_log").insert({
+      action_type: data.role === "approver" ? "CALENDAR_APPROVED" : "CALENDAR_SIGNED",
+      target_type: "mission_week",
+      target_id: data.week_id,
+      performed_by_user_id: userId,
+      performer_role: signerRole,
+      new_value: { signature_name: name, signature_role: data.role },
+    });
     return { ok: true };
   });
 

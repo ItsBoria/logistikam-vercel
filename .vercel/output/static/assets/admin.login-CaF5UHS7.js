@@ -1,0 +1,1 @@
+import{u as r,r as a,j as t}from"./index-_j5eiC_-.js";import{L as s}from"./loader-circle-D-AXioF2.js";function c(){const e=r();return a.useEffect(()=>{e({to:"/",search:{tab:"admin"},replace:!0})},[e]),t.jsx("div",{className:"min-h-screen flex items-center justify-center",children:t.jsx(s,{className:"w-8 h-8 animate-spin text-primary"})})}export{c as component};

@@ -44,6 +44,11 @@ export type AdminEventType =
   | "order_cancelled"
   | "budget_low"
   | "budget_exceeded"
+  | "budget_reset_completed"
+  | "budget_reset_failed"
+  | "calendar_awaiting_signature"
+  | "calendar_approved"
+  | "calendar_rejected"
   | "low_stock"
   | "out_of_stock"
   | "replacement_request"
@@ -69,7 +74,8 @@ export async function sendPushToAdmins(
     const { data: roleRows } = await supabaseAdmin
       .from("user_roles")
       .select("user_id, role")
-      .in("role", ["admin", "staff"]);
+      .eq("is_active", true)
+      .in("role", ["OWNER", "WORK_MANAGER", "ADMIN"]);
     const userIds = Array.from(new Set((roleRows ?? []).map((r: any) => r.user_id)));
     if (!userIds.length) return { sent: 0, removed: 0, failed: 0 };
 

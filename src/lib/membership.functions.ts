@@ -43,28 +43,9 @@ export const getMyTeamContext = createServerFn({ method: "GET" })
 export const claimConfiguredFirstAdmin = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const configuredEmail = process.env.BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase();
-    if (!configuredEmail) return { claimed: false, reason: "not_configured" as const };
-
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: userData, error: userError } = await supabaseAdmin.auth.admin.getUserById(context.userId);
-    if (userError || !userData.user) throw new Error(userError?.message || "Unable to load the signed-in user");
-    if ((userData.user.email || "").toLowerCase() !== configuredEmail) {
-      return { claimed: false, reason: "email_mismatch" as const };
-    }
-
-    const { count, error: countError } = await supabaseAdmin
-      .from("user_roles")
-      .select("*", { count: "exact", head: true })
-      .eq("role", "admin");
-    if (countError) throw new Error(countError.message);
-    if ((count ?? 0) > 0) return { claimed: false, reason: "admin_exists" as const };
-
-    const { error: roleError } = await supabaseAdmin
-      .from("user_roles")
-      .upsert({ user_id: context.userId, role: "admin" }, { onConflict: "user_id,role" });
-    if (roleError) throw new Error(roleError.message);
-    return { claimed: true, reason: "claimed" as const };
+    const { getUserRole } = await import("./authz.server");
+    const role = await getUserRole(context.userId);
+    return { claimed: false, reason: role !== "USER" ? "already_assigned" as const : "owner_managed" as const };
   });
 
 export const listActiveTeams = createServerFn({ method: "GET" })
@@ -113,10 +94,9 @@ export const setUserTeamAdmin = createServerFn({ method: "POST" })
     team_id: z.string().uuid().nullable(),
   }).parse(input))
   .handler(async ({ data, context }) => {
+    const { assertOwner } = await import("./authz.server");
+    await assertOwner(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: isAdmin } = await supabaseAdmin
-      .rpc("has_role", { _user_id: context.userId, _role: "admin" });
-    if (!isAdmin) throw new Error("גישה לאדמין בלבד");
     if (data.team_id === null) {
       const { error } = await supabaseAdmin.from("team_members").delete().eq("user_id", data.user_id);
       if (error) throw new Error(error.message);
@@ -165,42 +145,6 @@ export const claimAdminWithLegacyCreds = createServerFn({ method: "POST" })
       password: z.string().min(1).max(72),
     }).parse(input)
   )
-  .handler(async ({ data, context }) => {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { createClient } = await import("@supabase/supabase-js");
-    const raw = data.identifier.trim().toLowerCase();
-    const synth = raw.includes("@") ? raw : `${raw}@admins.local`;
-
-    // Try direct email first
-    const candidates = [synth];
-    // Also resolve by metadata username / legacy email local-part
-    const { data: list } = await supabaseAdmin.auth.admin.listUsers();
-    const users = list?.users ?? [];
-    const byMeta = users.find(
-      (u) => ((u.user_metadata as any)?.username || "").toString().toLowerCase() === raw,
-    );
-    if (byMeta?.email) candidates.unshift(byMeta.email);
-
-    // Verify password using a transient client so we don't disturb the current session.
-    const url = process.env.SUPABASE_URL!;
-    const anon = process.env.SUPABASE_PUBLISHABLE_KEY!;
-    const tmp = createClient(url, anon, { auth: { persistSession: false, autoRefreshToken: false } });
-    let legacyUserId: string | null = null;
-    for (const email of candidates) {
-      const { data: r, error } = await tmp.auth.signInWithPassword({ email, password: data.password });
-      if (!error && r.user) { legacyUserId = r.user.id; break; }
-    }
-    if (!legacyUserId) throw new Error("שם משתמש או סיסמה שגויים");
-
-    // Confirm the legacy account actually has admin role
-    const { data: isAdminLegacy } = await supabaseAdmin
-      .rpc("has_role", { _user_id: legacyUserId, _role: "admin" });
-    if (!isAdminLegacy) throw new Error("חשבון זה אינו מנהל");
-
-    // Grant admin to the currently signed-in user
-    const { error: insErr } = await supabaseAdmin
-      .from("user_roles")
-      .upsert({ user_id: context.userId, role: "admin" }, { onConflict: "user_id,role" });
-    if (insErr) throw new Error(insErr.message);
-    return { ok: true };
+  .handler(async () => {
+    throw new Error("שדרוג הרשאות דרך חשבון ישן בוטל. בעל המערכת מנהל את כל התפקידים.");
   });

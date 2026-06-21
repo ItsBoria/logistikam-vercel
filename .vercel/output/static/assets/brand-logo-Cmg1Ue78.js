@@ -1,0 +1,1 @@
+import{j as a}from"./index-_j5eiC_-.js";import{c as r}from"./button-CfVs-4cf.js";function i({className:t,size:o=64}){return a.jsx("img",{src:"/logikam-logo.svg",alt:"Logikam",width:o,height:o,className:r("inline-block select-none",t),style:{width:o,height:o},draggable:!1})}export{i as B};

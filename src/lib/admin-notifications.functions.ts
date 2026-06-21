@@ -1,10 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
+import { assertMinRole, getUserRole } from "./authz.server";
 
 export const ADMIN_EVENT_TYPES = [
   "order_created", "order_awaiting_approval", "order_approved", "order_rejected",
   "order_ready", "order_cancelled", "budget_low", "budget_exceeded",
+  "budget_reset_completed", "budget_reset_failed",
+  "calendar_awaiting_signature", "calendar_approved", "calendar_rejected",
   "low_stock", "out_of_stock", "replacement_request", "system_alert",
 ] as const;
 const EVENT_TYPES = ADMIN_EVENT_TYPES;
@@ -12,13 +15,7 @@ const eventTypeSchema = z.enum(EVENT_TYPES);
 const channelSchema = z.enum(["in_app_enabled", "push_enabled", "email_enabled"]);
 
 async function assertAdminOrStaff(userId: string) {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data } = await supabaseAdmin
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", userId)
-    .in("role", ["admin", "staff"]);
-  if (!data || data.length === 0) throw new Error("גישה מורשית בלבד");
+  return assertMinRole(userId, "ADMIN");
 }
 
 export const getMyNotificationPrefs = createServerFn({ method: "GET" })
@@ -162,15 +159,26 @@ export const getMyAdminRoles = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data } = await supabaseAdmin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", context.userId);
-    const roles = (data ?? []).map((r: any) => r.role as "admin" | "staff");
+    const { data: profile } = await supabaseAdmin.from("profiles")
+      .select("is_active").eq("id", context.userId).maybeSingle();
+    if (profile?.is_active === false) {
+      return {
+        roles: [], role: "USER" as const, isOwner: false, isWorkManager: false,
+        isAdmin: false, isStaff: false, canManageRoles: false,
+        canResetBudgets: false, canSignCalendar: false, hasAccess: false,
+      };
+    }
+    const role = await getUserRole(context.userId);
     return {
-      roles,
-      isAdmin: roles.includes("admin"),
-      isStaff: roles.includes("staff"),
-      hasAccess: roles.length > 0,
+      roles: role === "USER" ? [] : [role],
+      role,
+      isOwner: role === "OWNER",
+      isWorkManager: role === "WORK_MANAGER",
+      isAdmin: role !== "USER",
+      isStaff: false,
+      canManageRoles: role === "OWNER",
+      canResetBudgets: role === "OWNER" || role === "WORK_MANAGER",
+      canSignCalendar: role === "OWNER" || role === "WORK_MANAGER",
+      hasAccess: role !== "USER",
     };
   });
