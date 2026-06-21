@@ -506,6 +506,49 @@ CREATE UNIQUE INDEX IF NOT EXISTS one_active_user_budget_period
 -- Security baseline
 -- ---------------------------------------------------------------------------
 
+-- Compatibility helpers deliberately compare imported IDs as text. This lets
+-- databases restored from CSV (where UUID columns sometimes became text)
+-- operate safely alongside normal UUID-based Supabase Auth IDs.
+CREATE OR REPLACE FUNCTION public.role_level(_role text)
+RETURNS integer LANGUAGE sql IMMUTABLE AS $$
+  SELECT CASE upper(_role)
+    WHEN 'OWNER' THEN 100
+    WHEN 'WORK_MANAGER' THEN 80
+    WHEN 'ADMIN' THEN 50
+    WHEN 'STAFF' THEN 50
+    WHEN 'USER' THEN 10
+    ELSE 0
+  END
+$$;
+
+CREATE OR REPLACE FUNCTION public.current_role_level(_user_id uuid)
+RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT COALESCE(MAX(public.role_level(role::text)), 10)
+  FROM public.user_roles
+  WHERE user_id::text = _user_id::text
+    AND COALESCE(is_active, true) = true
+$$;
+
+CREATE OR REPLACE FUNCTION public.current_role_code(_user_id uuid)
+RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT COALESCE(
+    (
+      SELECT role::text
+      FROM public.user_roles
+      WHERE user_id::text = _user_id::text
+        AND COALESCE(is_active, true) = true
+      ORDER BY public.role_level(role::text) DESC
+      LIMIT 1
+    ),
+    'USER'
+  )
+$$;
+
+CREATE OR REPLACE FUNCTION public.has_min_role(_user_id uuid, _minimum text)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT public.current_role_level(_user_id) >= public.role_level(_minimum)
+$$;
+
 ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.teams ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
@@ -554,30 +597,38 @@ GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO service_role;
 -- role/budget foundation migration after this repair script.
 DROP POLICY IF EXISTS "users read own roles" ON public.user_roles;
 CREATE POLICY "users read own roles" ON public.user_roles
-FOR SELECT TO authenticated USING (user_id = auth.uid());
+FOR SELECT TO authenticated USING (user_id::text = auth.uid()::text);
 
 DROP POLICY IF EXISTS "users read own profile" ON public.profiles;
 CREATE POLICY "users read own profile" ON public.profiles
-FOR SELECT TO authenticated USING (id = auth.uid());
+FOR SELECT TO authenticated USING (id::text = auth.uid()::text);
 DROP POLICY IF EXISTS "users update own profile" ON public.profiles;
 CREATE POLICY "users update own profile" ON public.profiles
-FOR UPDATE TO authenticated USING (id = auth.uid()) WITH CHECK (id = auth.uid());
+FOR UPDATE TO authenticated
+USING (id::text = auth.uid()::text)
+WITH CHECK (id::text = auth.uid()::text);
 
 DROP POLICY IF EXISTS "users read own membership" ON public.team_members;
 CREATE POLICY "users read own membership" ON public.team_members
-FOR SELECT TO authenticated USING (user_id = auth.uid());
+FOR SELECT TO authenticated USING (user_id::text = auth.uid()::text);
 
 DROP POLICY IF EXISTS "users manage own admin push subs" ON public.admin_push_subscriptions;
 CREATE POLICY "users manage own admin push subs" ON public.admin_push_subscriptions
-FOR ALL TO authenticated USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+FOR ALL TO authenticated
+USING (user_id::text = auth.uid()::text)
+WITH CHECK (user_id::text = auth.uid()::text);
 
 DROP POLICY IF EXISTS "users manage own admin preferences" ON public.admin_preferences;
 CREATE POLICY "users manage own admin preferences" ON public.admin_preferences
-FOR ALL TO authenticated USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+FOR ALL TO authenticated
+USING (user_id::text = auth.uid()::text)
+WITH CHECK (user_id::text = auth.uid()::text);
 
 DROP POLICY IF EXISTS "users manage own notification prefs" ON public.admin_notification_prefs;
 CREATE POLICY "users manage own notification prefs" ON public.admin_notification_prefs
-FOR ALL TO authenticated USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+FOR ALL TO authenticated
+USING (user_id::text = auth.uid()::text)
+WITH CHECK (user_id::text = auth.uid()::text);
 
 -- Operational hierarchy policies. Higher roles inherit ADMIN access through
 -- has_min_role(), so OWNER and WORK_MANAGER do not need duplicate ADMIN rows.
@@ -676,19 +727,28 @@ FOR SELECT TO authenticated USING (public.has_min_role(auth.uid(), 'WORK_MANAGER
 DROP POLICY IF EXISTS "work managers create own mission weeks" ON public.mission_weeks;
 CREATE POLICY "work managers create own mission weeks" ON public.mission_weeks
 FOR INSERT TO authenticated
-WITH CHECK (public.has_min_role(auth.uid(), 'WORK_MANAGER') AND owner_user_id = auth.uid());
+WITH CHECK (
+  public.has_min_role(auth.uid(), 'WORK_MANAGER')
+  AND owner_user_id::text = auth.uid()::text
+);
 DROP POLICY IF EXISTS "work managers update owned or approvable mission weeks" ON public.mission_weeks;
 CREATE POLICY "work managers update owned or approvable mission weeks" ON public.mission_weeks
 FOR UPDATE TO authenticated
 USING (
   public.has_min_role(auth.uid(), 'WORK_MANAGER')
-  AND (owner_user_id = auth.uid() OR public.current_role_code(auth.uid()) IN ('OWNER','WORK_MANAGER'))
+  AND (
+    owner_user_id::text = auth.uid()::text
+    OR public.current_role_code(auth.uid()) IN ('OWNER','WORK_MANAGER')
+  )
 )
 WITH CHECK (public.has_min_role(auth.uid(), 'WORK_MANAGER'));
 DROP POLICY IF EXISTS "work managers delete own mission weeks" ON public.mission_weeks;
 CREATE POLICY "work managers delete own mission weeks" ON public.mission_weeks
 FOR DELETE TO authenticated
-USING (public.has_min_role(auth.uid(), 'WORK_MANAGER') AND owner_user_id = auth.uid());
+USING (
+  public.has_min_role(auth.uid(), 'WORK_MANAGER')
+  AND owner_user_id::text = auth.uid()::text
+);
 
 DROP POLICY IF EXISTS "work managers read missions" ON public.missions;
 DROP POLICY IF EXISTS "Admins manage missions" ON public.missions;
@@ -703,14 +763,16 @@ USING (
   public.has_min_role(auth.uid(), 'WORK_MANAGER')
   AND EXISTS (
     SELECT 1 FROM public.mission_weeks w
-    WHERE w.id = missions.week_id AND w.owner_user_id = auth.uid()
+    WHERE w.id::text = missions.week_id::text
+      AND w.owner_user_id::text = auth.uid()::text
   )
 )
 WITH CHECK (
   public.has_min_role(auth.uid(), 'WORK_MANAGER')
   AND EXISTS (
     SELECT 1 FROM public.mission_weeks w
-    WHERE w.id = missions.week_id AND w.owner_user_id = auth.uid()
+    WHERE w.id::text = missions.week_id::text
+      AND w.owner_user_id::text = auth.uid()::text
   )
 );
 
@@ -726,8 +788,8 @@ USING (
   public.has_min_role(auth.uid(), 'WORK_MANAGER')
   AND EXISTS (
     SELECT 1 FROM public.mission_weeks w
-    WHERE w.id = mission_day_notes.week_id
-      AND w.owner_user_id = auth.uid()
+    WHERE w.id::text = mission_day_notes.week_id::text
+      AND w.owner_user_id::text = auth.uid()::text
       AND w.locked = false
   )
 )
@@ -735,8 +797,8 @@ WITH CHECK (
   public.has_min_role(auth.uid(), 'WORK_MANAGER')
   AND EXISTS (
     SELECT 1 FROM public.mission_weeks w
-    WHERE w.id = mission_day_notes.week_id
-      AND w.owner_user_id = auth.uid()
+    WHERE w.id::text = mission_day_notes.week_id::text
+      AND w.owner_user_id::text = auth.uid()::text
       AND w.locked = false
   )
 );
