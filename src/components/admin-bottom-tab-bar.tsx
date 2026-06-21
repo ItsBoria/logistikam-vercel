@@ -95,8 +95,8 @@ export function AdminBottomTabBar({ role }: { role: "OWNER" | "WORK_MANAGER" | "
     ] : []),
     ...(canManageBudgets ? [
       { to: "/admin/budgets", label: "תקציבים", icon: WalletCards },
-      { to: "/admin/calendar", label: "תכנית שבועית", icon: CalendarDays },
     ] : []),
+    { to: "/admin/calendar", label: "תכנית שבועית", icon: CalendarDays },
     ...ADMIN_MORE.filter((item) => item.to !== "/admin/calendar"),
   ];
 

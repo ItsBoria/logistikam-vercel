@@ -3,7 +3,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertMinRole, assertOwner as assertSystemOwner, getUserRole } from "./authz.server";
 
 async function assertAdmin(ctx: { supabase: any; userId: string }) {
-  return assertMinRole(ctx.userId, "WORK_MANAGER");
+  return assertMinRole(ctx.userId, "ADMIN");
 }
 
 async function isApprover(ctx: { supabase: any; userId: string }) {
@@ -54,18 +54,25 @@ export const listCalendarAdmins = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     await assertAdmin(context);
+    const callerRole = await getUserRole(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: roles } = await supabaseAdmin
       .from("user_roles").select("user_id, role").eq("is_active", true)
-      .in("role", ["OWNER", "WORK_MANAGER"]);
-    const ids = (roles ?? []).map((r: any) => r.user_id);
+      .in("role", ["OWNER", "WORK_MANAGER", "ADMIN"]);
+    const roleByUser = new Map<string, string>();
+    for (const row of (roles ?? []) as any[]) {
+      const current = roleByUser.get(row.user_id);
+      const level: Record<string, number> = { OWNER: 100, WORK_MANAGER: 80, ADMIN: 50 };
+      if (!current || level[row.role] > level[current]) roleByUser.set(row.user_id, row.role);
+    }
+    const ids = callerRole === "ADMIN" ? [context.userId] : Array.from(roleByUser.keys());
     if (!ids.length) return [] as AdminOption[];
     const { data: profs } = await supabaseAdmin
       .from("profiles").select("id, display_name, email, is_approver").in("id", ids);
     return (profs ?? []).map((p: any) => ({
       id: p.id,
       name: p.display_name || p.email || p.id.slice(0, 8),
-      is_approver: true,
+      is_approver: roleByUser.get(p.id) === "OWNER" || roleByUser.get(p.id) === "WORK_MANAGER",
     })) as AdminOption[];
   });
 
@@ -139,18 +146,21 @@ export const getMissionWeek = createServerFn({ method: "POST" })
       week: weekRow as WeekRow,
       missions: (missions ?? []) as MissionRow[],
       day_notes: (notes ?? []) as DayNoteRow[],
-      can_edit: isOwner && !weekRow.locked,
+      can_edit: isOwner && !weekRow.locked && !weekRow.author_signed_at,
       can_sign_author: isOwner && !weekRow.author_signed_at,
-      can_sign_approver: approver && !weekRow.approver_signed_at,
+      can_sign_approver: approver && !isOwner && !!weekRow.author_signed_at && !weekRow.approver_signed_at,
       is_owner: isOwner,
     };
   });
 
 async function assertOwner(ctx: { supabase: any; userId: string }, week_id: string) {
-  const { data: w } = await ctx.supabase.from("mission_weeks").select("owner_user_id, locked, year, week").eq("id", week_id).maybeSingle();
+  const { data: w } = await ctx.supabase.from("mission_weeks")
+    .select("owner_user_id, locked, author_signed_at, year, week")
+    .eq("id", week_id).maybeSingle();
   if (!w) throw new Error("שבוע לא נמצא");
   if (w.owner_user_id !== ctx.userId) throw new Error("רק בעל הלוח יכול לערוך");
   if (w.locked) throw new Error("השבוע נעול — לא ניתן לערוך");
+  if (w.author_signed_at) throw new Error("הלוח כבר נחתם וממתין לאישור מנהל עבודה");
   return w;
 }
 
@@ -266,6 +276,8 @@ export const signMissionWeek = createServerFn({ method: "POST" })
       patch.author_signature_name = name;
     } else {
       if (!(await isApprover(context))) throw new Error("רק מנהל מאשר יכול לחתום");
+      if (w.owner_user_id === userId) throw new Error("לא ניתן לאשר את הלוח של עצמך");
+      if (!w.author_signed_at) throw new Error("יש להמתין לחתימת נגד הלוגיסטיקה לפני אישור מנהל העבודה");
       patch.approver_signed_at = new Date().toISOString();
       patch.approver_signature_name = name;
       patch.approver_user_id = userId;
