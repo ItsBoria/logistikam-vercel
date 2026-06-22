@@ -19,10 +19,14 @@ import {
   WidthType,
 } from "docx";
 import type { DayNoteRow, MissionRow, WeekRow } from "./missions.functions";
+import {
+  WORK_DAYS,
+  isoWeekToWorkweekRange,
+  workdayDate,
+} from "./workweek";
 
 const bidi = bidiFactory();
 
-const WORK_DAYS = [0, 1, 2, 3, 4] as const;
 const DAY_NAMES = ["יום א'", "יום ב'", "יום ג'", "יום ד'", "יום ה'"];
 const HEB_MONTHS = [
   "ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני",
@@ -72,17 +76,7 @@ function toVisual(str: string): string {
   }).join("\n");
 }
 
-export function isoWeekToRange(year: number, week: number): { start: Date; end: Date } {
-  const simple = new Date(Date.UTC(year, 0, 4));
-  const dayOfWeek = simple.getUTCDay() || 7;
-  const isoMon = new Date(simple);
-  isoMon.setUTCDate(simple.getUTCDate() - (dayOfWeek - 1) + (week - 1) * 7);
-  const start = new Date(isoMon);
-  start.setUTCDate(isoMon.getUTCDate() - 1);
-  const end = new Date(start);
-  end.setUTCDate(start.getUTCDate() + 4);
-  return { start, end };
-}
+export const isoWeekToRange = isoWeekToWorkweekRange;
 
 function fmtDate(date: Date): string {
   return `${String(date.getUTCDate()).padStart(2, "0")}/${String(date.getUTCMonth() + 1).padStart(2, "0")}/${date.getUTCFullYear()}`;
@@ -270,7 +264,7 @@ function pdfGeometry(
 }
 
 function drawTableHeader(pdf: Pdf, week: WeekRow, y: number, geometry: PdfTableGeometry): number {
-  const { start } = isoWeekToRange(week.year, week.week);
+  const range = isoWeekToRange(week.year, week.week);
   const headHeight = 35;
   const subHeight = 20;
   const tableLeft = geometry.dayLefts[WORK_DAYS.length - 1];
@@ -290,8 +284,7 @@ function drawTableHeader(pdf: Pdf, week: WeekRow, y: number, geometry: PdfTableG
     const width = geometry.dayWidths[index];
     const planWidth = geometry.planWidths[index];
     const execWidth = width - planWidth;
-    const date = new Date(start);
-    date.setUTCDate(start.getUTCDate() + day);
+    const date = workdayDate(range, day);
 
     setPdfColor(pdf, "fill", DAY_FILLS[index]);
     setPdfColor(pdf, "draw", COLORS.border);
@@ -532,8 +525,18 @@ export async function downloadWeeklyPDF(
   missions: MissionRow[],
   dayNotes: DayNoteRow[] = [],
 ) {
-  const pdf = await createWeeklyPDF(week, missions, dayNotes);
+  const pdf = await buildWeeklyPDF(week, missions, dayNotes);
   pdf.save(`weekly-${week.year}-w${String(week.week).padStart(2, "0")}.pdf`);
+}
+
+// Kept as a public builder for tests and integrations introduced upstream.
+export async function buildWeeklyPDF(
+  week: WeekRow,
+  missions: MissionRow[],
+  dayNotes: DayNoteRow[] = [],
+  _brandName = "תוכנית עבודה שבועית",
+) {
+  return createWeeklyPDF(week, missions, dayNotes);
 }
 
 const docxBorder = { style: BorderStyle.SINGLE, size: 4, color: COLORS.border.slice(1) };
@@ -669,8 +672,7 @@ export function createWeeklyDOCX(
         center: true,
       }),
       ...WORK_DAYS.map((day, index) => {
-        const date = new Date(start);
-        date.setUTCDate(start.getUTCDate() + day);
+        const date = workdayDate(isoWeekToRange(week.year, week.week), day);
         return docxCell([
           rtlPara(DAY_NAMES[index], { bold: true, size: 18, color: COLORS.ink }),
           ltrPara(fmtDate(date), { size: 14, color: COLORS.muted }),
@@ -829,6 +831,16 @@ export async function downloadWeeklyDOCX(
   dayNotes: DayNoteRow[] = [],
 ) {
   const { saveAs } = await import("file-saver");
-  const blob = await Packer.toBlob(createWeeklyDOCX(week, missions, dayNotes));
+  const blob = await buildWeeklyDOCXBlob(week, missions, dayNotes);
   saveAs(blob, `weekly-${week.year}-w${String(week.week).padStart(2, "0")}.docx`);
+}
+
+// Kept as a public builder for tests and integrations introduced upstream.
+export async function buildWeeklyDOCXBlob(
+  week: WeekRow,
+  missions: MissionRow[],
+  dayNotes: DayNoteRow[] = [],
+  _brandName = "תוכנית עבודה שבועית",
+) {
+  return Packer.toBlob(createWeeklyDOCX(week, missions, dayNotes));
 }

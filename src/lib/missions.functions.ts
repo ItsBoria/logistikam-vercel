@@ -11,6 +11,12 @@ async function isApprover(ctx: { supabase: any; userId: string }) {
   return role === "OWNER" || role === "WORK_MANAGER";
 }
 
+function assertWorkday(day: number) {
+  if (!Number.isInteger(day) || day < 0 || day > 4) {
+    throw new Error("יום המשימה חייב להיות בין יום ראשון ליום חמישי");
+  }
+}
+
 export type MissionRow = {
   id: string;
   week_id: string;
@@ -175,6 +181,7 @@ export const upsertMission = createServerFn({ method: "POST" })
     await assertAdmin(context);
     const { supabase } = context;
     await assertOwner(context, data.week_id);
+    assertWorkday(data.day_of_week);
 
     const patch = {
       title: data.title,
@@ -246,6 +253,7 @@ export const upsertDayNote = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
     await assertOwner(context, data.week_id);
+    assertWorkday(data.day_of_week);
     const { error } = await context.supabase
       .from("mission_day_notes")
       .upsert(
