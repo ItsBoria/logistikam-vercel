@@ -1,407 +1,834 @@
-// Weekly mission plan export — PDF (jsPDF + Heebo, bidi-js for RTL) and DOCX.
-import jsPDF from "jspdf";
-import { saveAs } from "file-saver";
+// Weekly mission plan export - polished A4 landscape PDF and DOCX.
+import { jsPDF } from "jspdf";
 import bidiFactory from "bidi-js";
 import {
-  Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
-  AlignmentType, HeadingLevel, BorderStyle, WidthType, ShadingType,
+  AlignmentType,
+  BorderStyle,
+  Document,
+  HeightRule,
+  Packer,
+  PageOrientation,
+  Paragraph,
+  ShadingType,
+  Table,
+  TableCell,
+  TableLayoutType,
+  TableRow,
+  TextRun,
+  VerticalAlign,
+  WidthType,
 } from "docx";
-import { attachHeebo } from "./pdf-fonts";
-import type { MissionRow, WeekRow, DayNoteRow } from "./missions.functions";
+import type { DayNoteRow, MissionRow, WeekRow } from "./missions.functions";
 
 const bidi = bidiFactory();
 
-// Compute visual (display) order from logical text, using the Unicode Bidi Algorithm.
-// jsPDF draws text as-is, so we must hand it text already in visual order for RTL.
+const WORK_DAYS = [0, 1, 2, 3, 4] as const;
+const DAY_NAMES = ["יום א'", "יום ב'", "יום ג'", "יום ד'", "יום ה'"];
+const HEB_MONTHS = [
+  "ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני",
+  "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר",
+];
+
+const COLORS = {
+  ink: "#18324A",
+  muted: "#66788A",
+  accent: "#2A9D8F",
+  accentDark: "#207B70",
+  accentSoft: "#E7F5F2",
+  blueSoft: "#EBF3FA",
+  violetSoft: "#F2EFFA",
+  amberSoft: "#FFF5DE",
+  roseSoft: "#FCEFF2",
+  border: "#B8C8D6",
+  borderStrong: "#7E94A6",
+  surface: "#F8FAFC",
+  completed: "#3D7C68",
+  completedSoft: "#E4F3EC",
+};
+
+const DAY_FILLS = [
+  COLORS.accentSoft,
+  COLORS.blueSoft,
+  COLORS.violetSoft,
+  COLORS.amberSoft,
+  COLORS.roseSoft,
+];
+
+function hexRgb(hex: string): [number, number, number] {
+  const clean = hex.replace("#", "");
+  return [
+    Number.parseInt(clean.slice(0, 2), 16),
+    Number.parseInt(clean.slice(2, 4), 16),
+    Number.parseInt(clean.slice(4, 6), 16),
+  ];
+}
+
 function toVisual(str: string): string {
   if (!str) return str;
-  // Process line by line — bidi-js operates per paragraph.
   return str.split("\n").map((line) => {
     if (!line) return line;
     const levels = bidi.getEmbeddingLevels(line, "rtl");
-    const segments = bidi.getReorderSegments(line, levels);
-    let chars = line.split("");
-    for (const seg of segments) {
-      const [start, end] = seg;
-      const slice = chars.slice(start, end + 1).reverse();
-      // Mirror brackets/parens
-      for (let i = 0; i < slice.length; i++) {
-        const m = bidi.getMirroredCharacter(slice[i]);
-        if (m) slice[i] = m;
-      }
-      chars.splice(start, end - start + 1, ...slice);
-    }
-    return chars.join("");
+    return bidi.getReorderedString(line, levels);
   }).join("\n");
 }
-
-const DAY_NAMES_SHORT = ["יום א'", "יום ב'", "יום ג'", "יום ד'", "יום ה'", "יום ו'", "יום ש'"];
-const HEB_MONTHS = ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני", "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"];
 
 export function isoWeekToRange(year: number, week: number): { start: Date; end: Date } {
   const simple = new Date(Date.UTC(year, 0, 4));
   const dayOfWeek = simple.getUTCDay() || 7;
   const isoMon = new Date(simple);
   isoMon.setUTCDate(simple.getUTCDate() - (dayOfWeek - 1) + (week - 1) * 7);
-  const sun = new Date(isoMon);
-  sun.setUTCDate(isoMon.getUTCDate() - 1);
-  const sat = new Date(sun);
-  sat.setUTCDate(sun.getUTCDate() + 6);
-  return { start: sun, end: sat };
+  const start = new Date(isoMon);
+  start.setUTCDate(isoMon.getUTCDate() - 1);
+  const end = new Date(start);
+  end.setUTCDate(start.getUTCDate() + 4);
+  return { start, end };
 }
 
-function fmtDate(d: Date) {
-  return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}/${d.getUTCFullYear()}`;
-}
-function fmtFull(d: Date) {
-  return d.toLocaleDateString("he-IL", { day: "2-digit", month: "long", year: "numeric" });
+function fmtDate(date: Date): string {
+  return `${String(date.getUTCDate()).padStart(2, "0")}/${String(date.getUTCMonth() + 1).padStart(2, "0")}/${date.getUTCFullYear()}`;
 }
 
-// ----- jsPDF RTL helpers -----
+function weekSubtitle(week: WeekRow): string {
+  const { start, end } = isoWeekToRange(week.year, week.week);
+  return `שבוע ${week.week} חודש ${HEB_MONTHS[start.getUTCMonth()]} - ${fmtDate(start)}-${fmtDate(end)} - ${week.year}`;
+}
+
+function weekSubtitleVisualSegments(week: WeekRow): string[] {
+  const { start, end } = isoWeekToRange(week.year, week.week);
+  return [
+    String(week.year),
+    " - ",
+    fmtDate(end),
+    "-",
+    fmtDate(start),
+    " - ",
+    toVisual(HEB_MONTHS[start.getUTCMonth()]),
+    toVisual(" חודש "),
+    String(week.week),
+    toVisual("שבוע "),
+  ];
+}
+
+function groupMissions(missions: MissionRow[]): Record<number, MissionRow[]> {
+  const grouped: Record<number, MissionRow[]> = {};
+  for (const mission of missions) {
+    if (!WORK_DAYS.includes(mission.day_of_week as (typeof WORK_DAYS)[number])) continue;
+    (grouped[mission.day_of_week] ??= []).push(mission);
+  }
+  return grouped;
+}
+
+function dayContentScore(day: number, grouped: Record<number, MissionRow[]>, notes: Record<number, string>): number {
+  const dayMissions = grouped[day] ?? [];
+  const missionScore = dayMissions.reduce((score, mission) => (
+    score
+      + 34
+      + Math.min(mission.title.length, 100) * 1.4
+      + Math.min(mission.details?.length ?? 0, 180) * 0.55
+      + (mission.due_time ? 12 : 0)
+  ), 0);
+  return 90 + missionScore + Math.min(notes[day]?.length ?? 0, 160) * 0.45;
+}
+
+function distributeWidths(scores: number[], total: number, min: number, max: number): number[] {
+  const widths = Array(scores.length).fill(min);
+  let remaining = total - min * scores.length;
+  const active = new Set(scores.map((_, index) => index));
+
+  while (remaining > 0.1 && active.size) {
+    const activeScore = Array.from(active).reduce((sum, index) => sum + scores[index], 0) || active.size;
+    let distributed = 0;
+    for (const index of Array.from(active)) {
+      const share = remaining * (scores[index] / activeScore);
+      const capacity = max - widths[index];
+      const amount = Math.min(share, capacity);
+      widths[index] += amount;
+      distributed += amount;
+      if (capacity - amount < 0.1) active.delete(index);
+    }
+    if (distributed < 0.1) break;
+    remaining -= distributed;
+  }
+
+  if (remaining > 0) {
+    const add = remaining / widths.length;
+    widths.forEach((_, index) => { widths[index] += add; });
+  }
+  const correction = total - widths.reduce((sum, width) => sum + width, 0);
+  widths[widths.length - 1] += correction;
+  return widths;
+}
+
 type Pdf = jsPDF;
+const VISUAL_TEXT_OPTIONS = {
+  isInputVisual: true,
+  isOutputVisual: true,
+  isInputRtl: true,
+  isOutputRtl: true,
+  isSymmetricSwapping: false,
+};
 
-function rtlText(pdf: Pdf, str: string, xRight: number, y: number, maxW?: number) {
-  if (!str) return;
-  if (maxW) {
-    // Wrap on logical text, then reorder each line visually for jsPDF.
-    const lines = pdf.splitTextToSize(str, maxW) as string[];
-    lines.forEach((ln, i) => {
-      pdf.text(toVisual(ln), xRight, y + i * (pdf.getLineHeight() / pdf.internal.scaleFactor), {
-        align: "right",
-      } as any);
-    });
-  } else {
-    pdf.text(toVisual(str), xRight, y, { align: "right" } as any);
+function setPdfColor(pdf: Pdf, kind: "text" | "draw" | "fill", color: string) {
+  const [r, g, b] = hexRgb(color);
+  if (kind === "text") pdf.setTextColor(r, g, b);
+  else if (kind === "draw") pdf.setDrawColor(r, g, b);
+  else pdf.setFillColor(r, g, b);
+}
+
+function rtlText(
+  pdf: Pdf,
+  text: string,
+  xRight: number,
+  y: number,
+  maxWidth?: number,
+  options: { align?: "right" | "center"; lineHeight?: number } = {},
+): number {
+  if (!text) return 0;
+  const lines = maxWidth ? pdf.splitTextToSize(text, maxWidth) as string[] : [text];
+  const lineHeight = options.lineHeight ?? pdf.getLineHeight() / pdf.internal.scaleFactor;
+  lines.forEach((line, index) => {
+    pdf.text(toVisual(line), xRight, y + index * lineHeight, {
+      align: options.align ?? "right",
+      ...VISUAL_TEXT_OPTIONS,
+    } as any);
+  });
+  return lines.length * lineHeight;
+}
+
+function wrappedLines(pdf: Pdf, text: string, width: number): string[] {
+  if (!text) return [];
+  return pdf.splitTextToSize(text, width) as string[];
+}
+
+function missionHeight(pdf: Pdf, mission: MissionRow | undefined, width: number): number {
+  if (!mission) return 34;
+  pdf.setFontSize(8.5);
+  const titleLines = wrappedLines(pdf, mission.title, width - 12).length;
+  pdf.setFontSize(7.4);
+  const detailLines = mission.details ? wrappedLines(pdf, mission.details, width - 12).length : 0;
+  return Math.max(38, 17 + titleLines * 10 + detailLines * 8 + (mission.details ? 4 : 0));
+}
+
+function drawHeader(pdf: Pdf, week: WeekRow, compact = false) {
+  const pageW = pdf.internal.pageSize.getWidth();
+  const top = compact ? 22 : 25;
+  setPdfColor(pdf, "text", COLORS.ink);
+  pdf.setFont("Heebo", "bold");
+  pdf.setFontSize(compact ? 15 : 23);
+  pdf.text(toVisual("תוכנית עבודה שבועית"), pageW / 2, top, {
+    align: "center",
+    ...VISUAL_TEXT_OPTIONS,
+  } as any);
+
+  pdf.setFont("Heebo", "normal");
+  pdf.setFontSize(compact ? 8.5 : 10.5);
+  setPdfColor(pdf, "text", COLORS.muted);
+  const subtitleParts = weekSubtitleVisualSegments(week);
+  const subtitleWidth = subtitleParts.reduce((sum, part) => sum + pdf.getTextWidth(part), 0);
+  let subtitleX = pageW / 2 - subtitleWidth / 2;
+  for (const part of subtitleParts) {
+    pdf.text(part, subtitleX, top + (compact ? 15 : 20));
+    subtitleX += pdf.getTextWidth(part);
+  }
+
+  setPdfColor(pdf, "draw", COLORS.accent);
+  pdf.setLineWidth(2.2);
+  pdf.line(pageW / 2 - 35, top + (compact ? 23 : 30), pageW / 2 + 35, top + (compact ? 23 : 30));
+}
+
+type PdfTableGeometry = {
+  labelLeft: number;
+  labelWidth: number;
+  dayWidths: number[];
+  dayLefts: number[];
+  planWidths: number[];
+};
+
+function pdfGeometry(
+  pdf: Pdf,
+  grouped: Record<number, MissionRow[]>,
+  noteMap: Record<number, string>,
+): PdfTableGeometry {
+  const margin = 25;
+  const totalWidth = pdf.internal.pageSize.getWidth() - margin * 2;
+  const labelWidth = 65;
+  const dayTotal = totalWidth - labelWidth;
+  const average = dayTotal / WORK_DAYS.length;
+  const scores = WORK_DAYS.map((day) => dayContentScore(day, grouped, noteMap));
+  const dayWidths = distributeWidths(scores, dayTotal, average * 0.84, average * 1.18);
+  const labelLeft = pdf.internal.pageSize.getWidth() - margin - labelWidth;
+  const dayLefts: number[] = [];
+  const planWidths: number[] = [];
+  let right = labelLeft;
+  dayWidths.forEach((dayWidth, index) => {
+    const left = right - dayWidth;
+    dayLefts[index] = left;
+    planWidths[index] = dayWidth * 0.78;
+    right = left;
+  });
+  return { labelLeft, labelWidth, dayWidths, dayLefts, planWidths };
+}
+
+function drawTableHeader(pdf: Pdf, week: WeekRow, y: number, geometry: PdfTableGeometry): number {
+  const { start } = isoWeekToRange(week.year, week.week);
+  const headHeight = 35;
+  const subHeight = 20;
+  const tableLeft = geometry.dayLefts[WORK_DAYS.length - 1];
+  const tableRight = geometry.labelLeft + geometry.labelWidth;
+
+  setPdfColor(pdf, "fill", COLORS.ink);
+  setPdfColor(pdf, "draw", COLORS.borderStrong);
+  pdf.setLineWidth(0.5);
+  pdf.roundedRect(geometry.labelLeft, y, geometry.labelWidth, headHeight + subHeight, 3, 3, "FD");
+  pdf.setFont("Heebo", "bold");
+  pdf.setFontSize(9);
+  pdf.setTextColor(255, 255, 255);
+  rtlText(pdf, "קטגוריה", geometry.labelLeft + geometry.labelWidth / 2, y + 31, undefined, { align: "center" });
+
+  WORK_DAYS.forEach((day, index) => {
+    const left = geometry.dayLefts[index];
+    const width = geometry.dayWidths[index];
+    const planWidth = geometry.planWidths[index];
+    const execWidth = width - planWidth;
+    const date = new Date(start);
+    date.setUTCDate(start.getUTCDate() + day);
+
+    setPdfColor(pdf, "fill", DAY_FILLS[index]);
+    setPdfColor(pdf, "draw", COLORS.border);
+    pdf.rect(left, y, width, headHeight, "FD");
+    pdf.setFont("Heebo", "bold");
+    pdf.setFontSize(9.2);
+    setPdfColor(pdf, "text", COLORS.ink);
+    rtlText(pdf, DAY_NAMES[index], left + width - 7, y + 14);
+    pdf.setFont("Heebo", "normal");
+    pdf.setFontSize(7.6);
+    setPdfColor(pdf, "text", COLORS.muted);
+    pdf.text(fmtDate(date), left + 7, y + 14);
+
+    setPdfColor(pdf, "fill", COLORS.surface);
+    setPdfColor(pdf, "draw", COLORS.border);
+    pdf.rect(left, y + headHeight, planWidth, subHeight, "FD");
+    pdf.rect(left + planWidth, y + headHeight, execWidth, subHeight, "FD");
+    pdf.setFont("Heebo", "bold");
+    pdf.setFontSize(7.6);
+    setPdfColor(pdf, "text", COLORS.ink);
+    rtlText(pdf, "תכנון", left + planWidth / 2, y + headHeight + 13, undefined, { align: "center" });
+    rtlText(pdf, "ביצוע", left + planWidth + execWidth / 2, y + headHeight + 13, undefined, { align: "center" });
+  });
+
+  setPdfColor(pdf, "draw", COLORS.borderStrong);
+  pdf.rect(tableLeft, y, tableRight - tableLeft, headHeight + subHeight);
+  return y + headHeight + subHeight;
+}
+
+function drawSectionLabel(pdf: Pdf, text: string, y: number, height: number, geometry: PdfTableGeometry) {
+  setPdfColor(pdf, "fill", COLORS.accentSoft);
+  setPdfColor(pdf, "draw", COLORS.border);
+  pdf.rect(geometry.labelLeft, y, geometry.labelWidth, height, "FD");
+  pdf.setFont("Heebo", "bold");
+  pdf.setFontSize(9);
+  setPdfColor(pdf, "text", COLORS.accentDark);
+  rtlText(pdf, text, geometry.labelLeft + geometry.labelWidth - 7, y + height / 2 + 3, geometry.labelWidth - 14);
+}
+
+function drawInfluencers(
+  pdf: Pdf,
+  y: number,
+  geometry: PdfTableGeometry,
+  noteMap: Record<number, string>,
+): number {
+  pdf.setFont("Heebo", "normal");
+  pdf.setFontSize(8);
+  const heights = WORK_DAYS.map((day, index) => (
+    Math.max(52, wrappedLines(pdf, noteMap[day] ?? "", geometry.planWidths[index] - 12).length * 10 + 18)
+  ));
+  const height = Math.min(82, Math.max(...heights));
+  drawSectionLabel(pdf, "גורמים\nמשפיעים", y, height, geometry);
+
+  WORK_DAYS.forEach((day, index) => {
+    const left = geometry.dayLefts[index];
+    const width = geometry.dayWidths[index];
+    const planWidth = geometry.planWidths[index];
+    setPdfColor(pdf, "fill", "#FFFFFF");
+    setPdfColor(pdf, "draw", COLORS.border);
+    pdf.rect(left, y, planWidth, height, "FD");
+    pdf.rect(left + planWidth, y, width - planWidth, height, "FD");
+    pdf.setFont("Heebo", "normal");
+    pdf.setFontSize(8);
+    setPdfColor(pdf, "text", COLORS.ink);
+    rtlText(pdf, noteMap[day] ?? "", left + planWidth - 6, y + 15, planWidth - 12, { lineHeight: 10 });
+  });
+  return y + height;
+}
+
+function drawMissionPlan(pdf: Pdf, mission: MissionRow, left: number, y: number, width: number) {
+  const time = mission.due_time?.slice(0, 5);
+  const indicator = mission.done ? "✓" : "□";
+  pdf.setFont("Heebo", "bold");
+  pdf.setFontSize(8);
+  setPdfColor(pdf, "text", mission.done ? COLORS.completed : COLORS.accentDark);
+  pdf.text(indicator, left + width - 7, y + 13, { align: "right" } as any);
+  if (time) {
+    pdf.setFont("Heebo", "normal");
+    pdf.setFontSize(7.5);
+    setPdfColor(pdf, "text", COLORS.muted);
+    pdf.text(time, left + 6, y + 13);
+  }
+
+  pdf.setFont("Heebo", "bold");
+  pdf.setFontSize(8.5);
+  setPdfColor(pdf, "text", mission.done ? COLORS.completed : COLORS.ink);
+  const titleY = y + 24;
+  const titleHeight = rtlText(pdf, mission.title, left + width - 7, titleY, width - 14, { lineHeight: 10 });
+  if (mission.done) {
+    setPdfColor(pdf, "draw", COLORS.completed);
+    pdf.setLineWidth(0.35);
+    pdf.line(left + 7, titleY - 3, left + width - 7, titleY - 3);
+  }
+  if (mission.details) {
+    pdf.setFont("Heebo", "normal");
+    pdf.setFontSize(7.2);
+    setPdfColor(pdf, "text", COLORS.muted);
+    rtlText(pdf, mission.details, left + width - 7, titleY + titleHeight + 2, width - 14, { lineHeight: 8 });
   }
 }
 
-function drawVisual(pdf: Pdf, str: string, x: number, y: number, align: "left" | "center" | "right") {
-  pdf.text(toVisual(str), x, y, { align } as any);
+function drawMissionRow(
+  pdf: Pdf,
+  y: number,
+  rowIndex: number,
+  geometry: PdfTableGeometry,
+  grouped: Record<number, MissionRow[]>,
+): number {
+  const rowHeight = Math.max(...WORK_DAYS.map((day, index) => (
+    missionHeight(pdf, grouped[day]?.[rowIndex], geometry.planWidths[index])
+  )));
+  drawSectionLabel(pdf, rowIndex === 0 ? "משימות" : "", y, rowHeight, geometry);
+
+  WORK_DAYS.forEach((day, index) => {
+    const mission = grouped[day]?.[rowIndex];
+    const left = geometry.dayLefts[index];
+    const width = geometry.dayWidths[index];
+    const planWidth = geometry.planWidths[index];
+    const execWidth = width - planWidth;
+    setPdfColor(pdf, "fill", mission?.done ? COLORS.completedSoft : "#FFFFFF");
+    setPdfColor(pdf, "draw", COLORS.border);
+    pdf.rect(left, y, planWidth, rowHeight, "FD");
+    pdf.rect(left + planWidth, y, execWidth, rowHeight, "FD");
+    if (!mission) return;
+    drawMissionPlan(pdf, mission, left, y, planWidth);
+    if (mission.done) {
+      pdf.setFont("Heebo", "bold");
+      pdf.setFontSize(7.2);
+      setPdfColor(pdf, "text", COLORS.completed);
+      rtlText(pdf, "הושלם", left + planWidth + execWidth / 2, y + rowHeight / 2 + 3, undefined, { align: "center" });
+    } else {
+      pdf.setFont("Heebo", "normal");
+      pdf.setFontSize(10);
+      setPdfColor(pdf, "text", COLORS.borderStrong);
+      pdf.text("□", left + planWidth + execWidth / 2, y + rowHeight / 2 + 3, { align: "center" } as any);
+    }
+  });
+  return rowHeight;
 }
 
-function wrappedHeight(pdf: Pdf, str: string, maxW: number): number {
-  if (!str) return 0;
-  const lines = pdf.splitTextToSize(str, maxW) as string[];
-  return lines.length * (pdf.getLineHeight() / pdf.internal.scaleFactor);
-}
-
-// ----------- PDF -----------
-export async function downloadWeeklyPDF(
-  week: WeekRow, missions: MissionRow[],
-  dayNotes: DayNoteRow[] = [], brandName = "תוכנית עבודה שבועית",
-) {
-  const pdf = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
-  await attachHeebo(pdf);
-  pdf.setFont("Heebo", "normal");
-
+function drawSignatures(pdf: Pdf, week: WeekRow) {
   const pageW = pdf.internal.pageSize.getWidth();
   const pageH = pdf.internal.pageSize.getHeight();
   const margin = 28;
-  const range = isoWeekToRange(week.year, week.week);
-  const monthName = HEB_MONTHS[range.start.getUTCMonth()];
+  const y = pageH - 58;
+  const blockWidth = 250;
 
-  // --- Header (centered) ---
-  pdf.setFont("Heebo", "bold"); pdf.setFontSize(20);
-  drawVisual(pdf, brandName, pageW / 2, margin + 14, "center");
-  pdf.setFontSize(13);
-  drawVisual(pdf, `שבוע ${week.week} | ${monthName} ${week.year}`, pageW / 2, margin + 34, "center");
-
-  // optional quote line (per the paper form)
-  pdf.setFont("Heebo", "normal"); pdf.setFontSize(8); pdf.setTextColor(110);
-  drawVisual(pdf, `״ובחצי הלילה הם קמו והכו בקצה עולם.״`, pageW - margin, margin + 50, "right");
-  pdf.setTextColor(20);
-
-  // --- Table layout (RTL columns) ---
-  const tableTop = margin + 64;
-  const innerW = pageW - margin * 2;
-  const labelColW = 70;
-  const days = [0, 1, 2, 3, 4, 5]; // Sun..Fri
-  const dayColW = (innerW - labelColW) / days.length;
-  const subColW = dayColW / 2;
-
-  // Group missions per day
-  const grouped: Record<number, MissionRow[]> = {};
-  for (const m of missions) (grouped[m.day_of_week] ??= []).push(m);
-
-  // Day → influencer text
-  const noteMap: Record<number, string> = {};
-  for (const n of dayNotes) noteMap[n.day_of_week] = n.influencers;
-
-  // X position helpers (right edge of each column block)
-  // Label column is the rightmost slice.
-  const labelRight = pageW - margin;
-  const labelLeft = labelRight - labelColW;
-  // Day d=0 (Sunday) is immediately left of label column
-  const dayRight = (d: number) => labelLeft - d * dayColW;
-  const dayLeft = (d: number) => dayRight(d) - dayColW;
-
-  // --- Header row: day name + date, with תיכנון/ביצוע sub-headers ---
-  const headH = 36;
-  pdf.setDrawColor(60); pdf.setLineWidth(0.5);
-  pdf.setFillColor(15, 23, 42);
-  pdf.rect(margin, tableTop, innerW, headH, "FD");
-
-  pdf.setFont("Heebo", "bold"); pdf.setFontSize(10); pdf.setTextColor(255);
-  // label column header (empty / brand)
-  drawVisual(pdf, "קטגוריה", labelLeft + labelColW / 2, tableTop + 22, "center");
-
-  for (const d of days) {
-    const right = dayRight(d);
-    const date = new Date(range.start);
-    date.setUTCDate(range.start.getUTCDate() + d);
-    // Day name and date (top half)
-    pdf.setFontSize(10);
-    drawVisual(pdf, `${DAY_NAMES_SHORT[d]} ${fmtDate(date)}`, right - dayColW / 2, tableTop + 14, "center");
-    // Sub-headers (bottom half): תיכנון (right) / ביצוע (left)
-    pdf.setFontSize(9);
-    drawVisual(pdf, "תיכנון", right - subColW / 2, tableTop + 30, "center");
-    drawVisual(pdf, "ביצוע", right - subColW - subColW / 2, tableTop + 30, "center");
-
-    // sub-column divider
-    pdf.setDrawColor(180);
-    pdf.line(right - subColW, tableTop + 18, right - subColW, tableTop + headH);
-    // day column right border
-    pdf.setDrawColor(60);
-    pdf.line(right, tableTop, right, tableTop + headH);
-  }
-  pdf.setTextColor(20);
-
-  // --- Body rows ---
-  type Section = { label: string; getPlan: (d: number) => string; getExec: (d: number) => string; minH: number };
-  const sections: Section[] = [
-    {
-      label: "גורמים משפיעים",
-      getPlan: (d) => noteMap[d] ?? "",
-      getExec: () => "",
-      minH: 60,
-    },
-    {
-      label: "משימות",
-      getPlan: (d) => (grouped[d] ?? []).map((m) => `• ${m.due_time ? m.due_time.slice(0, 5) + "  " : ""}${m.title}${m.details ? `\n   ${m.details}` : ""}`).join("\n"),
-      getExec: (d) => (grouped[d] ?? []).map((m) => (m.done ? "✓" : "")).join("\n"),
-      minH: 160,
-    },
-  ];
-
-  let y = tableTop + headH;
-  pdf.setFont("Heebo", "normal"); pdf.setFontSize(9);
-  for (const sec of sections) {
-    // compute row height
-    let h = sec.minH;
-    for (const d of days) {
-      const planH = wrappedHeight(pdf, sec.getPlan(d), subColW - 8) + 12;
-      if (planH > h) h = planH;
-    }
-    const labelMaxLineH = wrappedHeight(pdf, sec.label, labelColW - 8) + 12;
-    if (labelMaxLineH > h) h = labelMaxLineH;
-
-    // ensure fits, else new page (basic)
-    if (y + h > pageH - 110) {
-      pdf.addPage();
-      y = margin;
-    }
-
-    // Cells: label column (light gray)
-    pdf.setFillColor(241, 245, 249);
-    pdf.rect(labelLeft, y, labelColW, h, "F");
-    pdf.setDrawColor(60); pdf.rect(margin, y, innerW, h);
-    // label text
-    pdf.setFont("Heebo", "bold"); pdf.setFontSize(10);
-    rtlText(pdf, sec.label, labelLeft + labelColW - 6, y + h / 2 + 3, labelColW - 12);
-
-    pdf.setFont("Heebo", "normal"); pdf.setFontSize(9);
-    for (const d of days) {
-      const right = dayRight(d);
-      // verticals
-      pdf.setDrawColor(60);
-      pdf.line(right, y, right, y + h);
-      pdf.setDrawColor(180);
-      pdf.line(right - subColW, y, right - subColW, y + h);
-
-      // plan text (right sub-col)
-      rtlText(pdf, sec.getPlan(d), right - 4, y + 14, subColW - 8);
-      // exec text (left sub-col)
-      rtlText(pdf, sec.getExec(d), right - subColW - 4, y + 14, subColW - 8);
-    }
-    y += h;
-  }
-
-  // Weekly notes
-  if (week.notes) {
-    const nh = wrappedHeight(pdf, week.notes, innerW - 12) + 22;
-    if (y + nh > pageH - 110) { pdf.addPage(); y = margin; }
-    pdf.setFont("Heebo", "bold"); pdf.setFontSize(10);
-    rtlText(pdf, "הערות שבועיות:", pageW - margin, y + 14);
+  const signature = (left: number, label: string, name: string | null, signedAt: string | null) => {
+    pdf.setFont("Heebo", "bold");
+    pdf.setFontSize(8.5);
+    setPdfColor(pdf, "text", COLORS.ink);
+    rtlText(pdf, label, left + blockWidth, y);
+    setPdfColor(pdf, "draw", COLORS.borderStrong);
+    pdf.setLineWidth(0.6);
+    pdf.line(left + 8, y + 18, left + blockWidth, y + 18);
     pdf.setFont("Heebo", "normal");
-    rtlText(pdf, week.notes, pageW - margin, y + 28, innerW - 12);
-    y += nh;
+    pdf.setFontSize(7.4);
+    setPdfColor(pdf, "text", COLORS.muted);
+    const value = name
+      ? `${name}${signedAt ? ` · ${new Date(signedAt).toLocaleDateString("he-IL")}` : ""}`
+      : "שם, תאריך וחתימה";
+    rtlText(pdf, value, left + blockWidth, y + 31);
+  };
+
+  signature(pageW - margin - blockWidth, "חתימת מנהל אתר אחסון:", week.author_signature_name, week.author_signed_at);
+  signature(margin, "חתימת מנהל עבודה:", week.approver_signature_name, week.approver_signed_at);
+}
+
+export type WeeklyPdfOptions = {
+  fontBase64?: string;
+};
+
+export async function createWeeklyPDF(
+  week: WeekRow,
+  missions: MissionRow[],
+  dayNotes: DayNoteRow[] = [],
+  options: WeeklyPdfOptions = {},
+): Promise<jsPDF> {
+  const pdf = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape", compress: true });
+  if (options.fontBase64) {
+    pdf.addFileToVFS("Heebo.ttf", options.fontBase64);
+    pdf.addFont("Heebo.ttf", "Heebo", "normal");
+    pdf.addFont("Heebo.ttf", "Heebo", "bold");
+  } else {
+    const { attachHeebo } = await import("./pdf-fonts");
+    await attachHeebo(pdf);
+  }
+  pdf.setFont("Heebo", "normal");
+
+  const grouped = groupMissions(missions);
+  const noteMap: Record<number, string> = {};
+  for (const note of dayNotes) {
+    if (WORK_DAYS.includes(note.day_of_week as (typeof WORK_DAYS)[number])) {
+      noteMap[note.day_of_week] = note.influencers;
+    }
+  }
+  const geometry = pdfGeometry(pdf, grouped, noteMap);
+  const maxMissionRows = Math.max(1, ...WORK_DAYS.map((day) => grouped[day]?.length ?? 0));
+  const bottomLimit = pdf.internal.pageSize.getHeight() - 94;
+
+  let rowIndex = 0;
+  let page = 0;
+  while (rowIndex < maxMissionRows || page === 0) {
+    if (page > 0) pdf.addPage("a4", "landscape");
+    drawHeader(pdf, week, page > 0);
+    let y = drawTableHeader(pdf, week, page > 0 ? 57 : 75, geometry);
+    if (page === 0) y = drawInfluencers(pdf, y, geometry, noteMap);
+
+    let drewRow = false;
+    while (rowIndex < maxMissionRows) {
+      const nextHeight = Math.max(...WORK_DAYS.map((day, index) => (
+        missionHeight(pdf, grouped[day]?.[rowIndex], geometry.planWidths[index])
+      )));
+      if (drewRow && y + nextHeight > bottomLimit) break;
+      y += drawMissionRow(pdf, y, rowIndex, geometry, grouped);
+      rowIndex += 1;
+      drewRow = true;
+    }
+    page += 1;
   }
 
-  // --- Signature blocks ---
-  const sigY = pageH - 96;
-  const halfW = (innerW - 30) / 2;
-  pdf.setDrawColor(60);
-  function sigBlock(xLeft: number, label: string, name: string | null, dt: string | null) {
-    pdf.setFont("Heebo", "bold"); pdf.setFontSize(10);
-    rtlText(pdf, label, xLeft + halfW, sigY);
-    pdf.setFont("Heebo", "normal"); pdf.setFontSize(9);
-    const lines = ["שם מלא:", "מ.א:", "דרגה:", "חתימה:", "תאריך:"];
-    lines.forEach((l, i) => {
-      const ly = sigY + 16 + i * 12;
-      rtlText(pdf, l, xLeft + halfW, ly);
-      pdf.setDrawColor(150);
-      pdf.line(xLeft + halfW - 60, ly + 2, xLeft + 10, ly + 2);
-    });
-    if (name) {
-      pdf.setFont("Heebo", "bold"); pdf.setFontSize(9);
-      rtlText(pdf, name, xLeft + halfW - 64, sigY + 16);
-    }
-    if (dt) {
-      pdf.setFont("Heebo", "normal"); pdf.setFontSize(8); pdf.setTextColor(110);
-      rtlText(pdf, new Date(dt).toLocaleDateString("he-IL"), xLeft + halfW - 64, sigY + 16 + 4 * 12);
-      pdf.setTextColor(20);
-    }
+  if (week.notes) {
+    let y = pdf.internal.pageSize.getHeight() - 88;
+    pdf.setFont("Heebo", "bold");
+    pdf.setFontSize(8);
+    setPdfColor(pdf, "text", COLORS.accentDark);
+    rtlText(pdf, "הערות שבועיות:", pdf.internal.pageSize.getWidth() / 2 + 120, y);
+    pdf.setFont("Heebo", "normal");
+    setPdfColor(pdf, "text", COLORS.muted);
+    rtlText(pdf, week.notes, pdf.internal.pageSize.getWidth() / 2 + 50, y, 300);
   }
-  // Right block (manager of storage site)
-  sigBlock(pageW - margin - halfW, "חתימת מנהל אתר אחסון:", week.author_signature_name, week.author_signed_at);
-  // Left block (work manager / senior approver)
-  sigBlock(margin, "חתימת מנהל עבודה:", week.approver_signature_name, week.approver_signed_at);
+  drawSignatures(pdf, week);
+  return pdf;
+}
 
+export async function downloadWeeklyPDF(
+  week: WeekRow,
+  missions: MissionRow[],
+  dayNotes: DayNoteRow[] = [],
+) {
+  const pdf = await createWeeklyPDF(week, missions, dayNotes);
   pdf.save(`weekly-${week.year}-w${String(week.week).padStart(2, "0")}.pdf`);
 }
 
-// ----------- DOCX (right-to-left) -----------
-const border = { style: BorderStyle.SINGLE, size: 4, color: "94A3B8" };
-const cellBorders = { top: border, bottom: border, left: border, right: border };
+const docxBorder = { style: BorderStyle.SINGLE, size: 4, color: COLORS.border.slice(1) };
+const docxBorders = { top: docxBorder, bottom: docxBorder, left: docxBorder, right: docxBorder };
+const DOCX_FONT = "Arial";
 
-function rtlPara(text: string, opts: { bold?: boolean; size?: number; align?: typeof AlignmentType[keyof typeof AlignmentType]; color?: string } = {}) {
+type RtlParagraphOptions = {
+  bold?: boolean;
+  size?: number;
+  color?: string;
+  align?: (typeof AlignmentType)[keyof typeof AlignmentType];
+  before?: number;
+  after?: number;
+};
+
+function rtlPara(text: string, options: RtlParagraphOptions = {}) {
   return new Paragraph({
     bidirectional: true,
-    alignment: opts.align ?? AlignmentType.RIGHT,
-    children: [new TextRun({ text, bold: opts.bold, size: opts.size, color: opts.color, font: "Arial", rightToLeft: true })],
+    alignment: options.align ?? AlignmentType.RIGHT,
+    spacing: { before: options.before ?? 0, after: options.after ?? 0, line: 240 },
+    children: [new TextRun({
+      text,
+      bold: options.bold,
+      size: options.size ?? 18,
+      color: options.color?.replace("#", ""),
+      font: DOCX_FONT,
+      rightToLeft: true,
+    })],
   });
 }
 
-export async function downloadWeeklyDOCX(
-  week: WeekRow, missions: MissionRow[],
-  dayNotes: DayNoteRow[] = [], brandName = "תוכנית עבודה שבועית",
+function ltrPara(text: string, options: RtlParagraphOptions = {}) {
+  return new Paragraph({
+    alignment: options.align ?? AlignmentType.LEFT,
+    spacing: { before: options.before ?? 0, after: options.after ?? 0 },
+    children: [new TextRun({
+      text,
+      bold: options.bold,
+      size: options.size ?? 16,
+      color: options.color?.replace("#", ""),
+      font: DOCX_FONT,
+    })],
+  });
+}
+
+function docxCell(
+  children: Paragraph[],
+  width: number,
+  options: { fill?: string; span?: number; center?: boolean } = {},
 ) {
-  const range = isoWeekToRange(week.year, week.week);
-  const monthName = HEB_MONTHS[range.start.getUTCMonth()];
-  const days = [0, 1, 2, 3, 4, 5];
+  return new TableCell({
+    width: { size: width, type: WidthType.DXA },
+    columnSpan: options.span,
+    borders: docxBorders,
+    shading: options.fill
+      ? { fill: options.fill.replace("#", ""), type: ShadingType.CLEAR, color: "auto" }
+      : undefined,
+    margins: { top: 90, bottom: 90, left: 100, right: 100 },
+    verticalAlign: options.center ? VerticalAlign.CENTER : VerticalAlign.TOP,
+    children: children.length ? children : [rtlPara("")],
+  });
+}
 
-  const grouped: Record<number, MissionRow[]> = {};
-  for (const m of missions) (grouped[m.day_of_week] ??= []).push(m);
+function missionParagraphs(mission: MissionRow | undefined): Paragraph[] {
+  if (!mission) return [rtlPara("")];
+  const time = mission.due_time?.slice(0, 5);
+  return [
+    new Paragraph({
+      bidirectional: true,
+      alignment: AlignmentType.RIGHT,
+      spacing: { after: 35, line: 220 },
+      children: [
+        new TextRun({
+          text: mission.done ? "☑ " : "☐ ",
+          bold: true,
+          size: 17,
+          color: (mission.done ? COLORS.completed : COLORS.accentDark).slice(1),
+          font: DOCX_FONT,
+          rightToLeft: true,
+        }),
+        ...(time ? [new TextRun({
+          text: `${time}  `,
+          size: 15,
+          color: COLORS.muted.slice(1),
+          font: DOCX_FONT,
+          rightToLeft: false,
+        })] : []),
+      ],
+    }),
+    rtlPara(mission.title, {
+      bold: true,
+      size: 18,
+      color: mission.done ? COLORS.completed : COLORS.ink,
+      after: mission.details ? 35 : 0,
+    }),
+    ...(mission.details ? [rtlPara(mission.details, { size: 15, color: COLORS.muted })] : []),
+  ];
+}
+
+export function createWeeklyDOCX(
+  week: WeekRow,
+  missions: MissionRow[],
+  dayNotes: DayNoteRow[] = [],
+): Document {
+  const grouped = groupMissions(missions);
   const noteMap: Record<number, string> = {};
-  for (const n of dayNotes) noteMap[n.day_of_week] = n.influencers;
+  for (const note of dayNotes) {
+    if (WORK_DAYS.includes(note.day_of_week as (typeof WORK_DAYS)[number])) {
+      noteMap[note.day_of_week] = note.influencers;
+    }
+  }
 
-  // Header row: label + reversed day order so visual is RTL
-  const headerCells: TableCell[] = [];
-  const reversed = [...days].reverse(); // Friday first visually (left), Sunday last (right) — but with bidiVisual the doc handles it
-  // We'll keep logical order and rely on RTL table direction.
-  const allDays = days;
+  const usableWidth = 15000;
+  const labelWidth = 1050;
+  const dayTotal = usableWidth - labelWidth;
+  const average = dayTotal / WORK_DAYS.length;
+  const scores = WORK_DAYS.map((day) => dayContentScore(day, grouped, noteMap));
+  const dayWidths = distributeWidths(scores, dayTotal, average * 0.84, average * 1.18)
+    .map((width) => Math.round(width));
+  dayWidths[dayWidths.length - 1] += dayTotal - dayWidths.reduce((sum, width) => sum + width, 0);
+  const planWidths = dayWidths.map((width) => Math.round(width * 0.78));
+  const execWidths = dayWidths.map((width, index) => width - planWidths[index]);
+  const columnWidths = [labelWidth, ...WORK_DAYS.flatMap((_, index) => [planWidths[index], execWidths[index]])];
+  const { start } = isoWeekToRange(week.year, week.week);
 
-  const dayHead = (d: number) => {
-    const date = new Date(range.start);
-    date.setUTCDate(range.start.getUTCDate() + d);
-    return new TableCell({
-      borders: cellBorders,
-      columnSpan: 2,
-      shading: { fill: "0F172A", type: ShadingType.CLEAR, color: "auto" },
-      children: [rtlPara(`${["יום א'","יום ב'","יום ג'","יום ד'","יום ה'","יום ו'","יום ש'"][d]} ${fmtDate(date)}`, { bold: true, color: "FFFFFF", align: AlignmentType.CENTER })],
-    });
-  };
-
-  const head1 = new TableRow({
+  const headerRow = new TableRow({
     tableHeader: true,
+    cantSplit: true,
+    height: { value: 500, rule: HeightRule.ATLEAST },
     children: [
-      new TableCell({
-        borders: cellBorders,
-        shading: { fill: "0F172A", type: ShadingType.CLEAR, color: "auto" },
-        children: [rtlPara("קטגוריה", { bold: true, color: "FFFFFF", align: AlignmentType.CENTER })],
+      docxCell([rtlPara("קטגוריה", { bold: true, size: 18, color: "#FFFFFF", align: AlignmentType.CENTER })], labelWidth, {
+        fill: COLORS.ink,
+        center: true,
       }),
-      ...allDays.map(dayHead),
+      ...WORK_DAYS.map((day, index) => {
+        const date = new Date(start);
+        date.setUTCDate(start.getUTCDate() + day);
+        return docxCell([
+          rtlPara(DAY_NAMES[index], { bold: true, size: 18, color: COLORS.ink }),
+          ltrPara(fmtDate(date), { size: 14, color: COLORS.muted }),
+        ], dayWidths[index], { fill: DAY_FILLS[index], span: 2, center: true });
+      }),
     ],
   });
-  const head2 = new TableRow({
+
+  const subHeaderRow = new TableRow({
     tableHeader: true,
+    cantSplit: true,
+    height: { value: 310, rule: HeightRule.ATLEAST },
     children: [
-      new TableCell({ borders: cellBorders, children: [rtlPara("")] }),
-      ...allDays.flatMap(() => [
-        new TableCell({ borders: cellBorders, shading: { fill: "E2E8F0", type: ShadingType.CLEAR, color: "auto" }, children: [rtlPara("תיכנון", { bold: true, align: AlignmentType.CENTER })] }),
-        new TableCell({ borders: cellBorders, shading: { fill: "E2E8F0", type: ShadingType.CLEAR, color: "auto" }, children: [rtlPara("ביצוע", { bold: true, align: AlignmentType.CENTER })] }),
+      docxCell([rtlPara("")], labelWidth, { fill: COLORS.ink }),
+      ...WORK_DAYS.flatMap((_, index) => [
+        docxCell([rtlPara("תכנון", { bold: true, size: 15, color: COLORS.ink, align: AlignmentType.CENTER })], planWidths[index], {
+          fill: COLORS.surface,
+          center: true,
+        }),
+        docxCell([rtlPara("ביצוע", { bold: true, size: 15, color: COLORS.ink, align: AlignmentType.CENTER })], execWidths[index], {
+          fill: COLORS.surface,
+          center: true,
+        }),
       ]),
     ],
   });
 
-  function dayDataRow(label: string, planFor: (d: number) => Paragraph[], execFor: (d: number) => Paragraph[]) {
-    return new TableRow({
-      children: [
-        new TableCell({ borders: cellBorders, shading: { fill: "F1F5F9", type: ShadingType.CLEAR, color: "auto" }, children: [rtlPara(label, { bold: true })] }),
-        ...allDays.flatMap((d) => [
-          new TableCell({ borders: cellBorders, children: planFor(d).length ? planFor(d) : [rtlPara("")] }),
-          new TableCell({ borders: cellBorders, children: execFor(d).length ? execFor(d) : [rtlPara("")] }),
-        ]),
-      ],
-    });
-  }
-
-  const influencersRow = dayDataRow(
-    "גורמים משפיעים",
-    (d) => (noteMap[d] ? [rtlPara(noteMap[d])] : []),
-    () => [],
-  );
-  const missionsRow = dayDataRow(
-    "משימות",
-    (d) => (grouped[d] ?? []).flatMap((m) => [
-      rtlPara(`• ${m.due_time ? m.due_time.slice(0, 5) + "  " : ""}${m.title}`, { bold: true }),
-      ...(m.details ? [rtlPara(m.details, { size: 18 })] : []),
-    ]),
-    (d) => (grouped[d] ?? []).map((m) => rtlPara(m.done ? "✓" : "", { align: AlignmentType.CENTER })),
-  );
-
-  const colCount = 1 + allDays.length * 2;
-  const colW = Math.floor(14400 / colCount);
-
-  const table = new Table({
-    width: { size: 14400, type: WidthType.DXA },
-    columnWidths: Array.from({ length: colCount }, () => colW),
-    rows: [head1, head2, influencersRow, missionsRow],
-    visuallyRightToLeft: true,
+  const influencerRow = new TableRow({
+    cantSplit: true,
+    height: { value: 760, rule: HeightRule.ATLEAST },
+    children: [
+      docxCell([rtlPara("גורמים\nמשפיעים", { bold: true, size: 18, color: COLORS.accentDark, align: AlignmentType.CENTER })], labelWidth, {
+        fill: COLORS.accentSoft,
+        center: true,
+      }),
+      ...WORK_DAYS.flatMap((day, index) => [
+        docxCell(noteMap[day] ? [rtlPara(noteMap[day], { size: 16, color: COLORS.ink })] : [rtlPara("")], planWidths[index]),
+        docxCell([rtlPara("")], execWidths[index]),
+      ]),
+    ],
   });
 
-  const sigPara = (label: string, name: string | null, dt: string | null) => [
-    new Paragraph({ children: [new TextRun(" ")] }),
-    rtlPara(label, { bold: true }),
-    rtlPara(`שם מלא: ${name ?? "_____________________"}`),
-    rtlPara("מ.א: _____________________"),
-    rtlPara("דרגה: _____________________"),
-    rtlPara("חתימה: _____________________"),
-    rtlPara(`תאריך: ${dt ? new Date(dt).toLocaleDateString("he-IL") : "_____________________"}`),
-  ];
+  const maxMissionRows = Math.max(1, ...WORK_DAYS.map((day) => grouped[day]?.length ?? 0));
+  const missionRows = Array.from({ length: maxMissionRows }, (_, rowIndex) => new TableRow({
+    cantSplit: true,
+    height: { value: 560, rule: HeightRule.ATLEAST },
+    children: [
+      docxCell(rowIndex === 0
+        ? [rtlPara("משימות", { bold: true, size: 18, color: COLORS.accentDark, align: AlignmentType.CENTER })]
+        : [rtlPara("")], labelWidth, { fill: COLORS.accentSoft, center: true }),
+      ...WORK_DAYS.flatMap((day, index) => {
+        const mission = grouped[day]?.[rowIndex];
+        return [
+          docxCell(missionParagraphs(mission), planWidths[index], { fill: mission?.done ? COLORS.completedSoft : undefined }),
+          docxCell(mission
+            ? [rtlPara(mission.done ? "הושלם" : "☐", {
+              bold: mission.done,
+              size: mission.done ? 14 : 18,
+              color: mission.done ? COLORS.completed : COLORS.borderStrong,
+              align: AlignmentType.CENTER,
+            })]
+            : [rtlPara("")], execWidths[index], { fill: mission?.done ? COLORS.completedSoft : undefined, center: true }),
+        ];
+      }),
+    ],
+  }));
 
-  const doc = new Document({
-    styles: { default: { document: { run: { font: "Arial", size: 22 } } } },
+  const mainTable = new Table({
+    width: { size: usableWidth, type: WidthType.DXA },
+    columnWidths,
+    layout: TableLayoutType.FIXED,
+    visuallyRightToLeft: true,
+    margins: { top: 80, bottom: 80, left: 90, right: 90 },
+    rows: [headerRow, subHeaderRow, influencerRow, ...missionRows],
+  });
+
+  const signatureCell = (label: string, name: string | null, signedAt: string | null) => docxCell([
+    rtlPara(label, { bold: true, size: 17, color: COLORS.ink, after: 100 }),
+    rtlPara(name
+      ? `${name}${signedAt ? ` · ${new Date(signedAt).toLocaleDateString("he-IL")}` : ""}`
+      : "________________________________", { size: 15, color: COLORS.muted }),
+  ], Math.floor((usableWidth - 350) / 2), { fill: "#FFFFFF" });
+
+  const signatureTable = new Table({
+    width: { size: usableWidth, type: WidthType.DXA },
+    columnWidths: [Math.floor((usableWidth - 350) / 2), 350, Math.floor((usableWidth - 350) / 2)],
+    layout: TableLayoutType.FIXED,
+    borders: {
+      top: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+      bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+      left: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+      right: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+      insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+      insideVertical: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+    },
+    rows: [new TableRow({
+      cantSplit: true,
+      children: [
+        signatureCell("חתימת מנהל עבודה:", week.approver_signature_name, week.approver_signed_at),
+        docxCell([rtlPara("")], 350),
+        signatureCell("חתימת מנהל אתר אחסון:", week.author_signature_name, week.author_signed_at),
+      ],
+    })],
+  });
+
+  return new Document({
+    styles: {
+      default: {
+        document: {
+          run: { font: DOCX_FONT, size: 18, color: COLORS.ink.slice(1) },
+          paragraph: { spacing: { after: 0, line: 240 } },
+        },
+      },
+    },
     sections: [{
-      properties: { page: { size: { width: 16838, height: 11906, orientation: "landscape" as any }, margin: { top: 700, right: 700, bottom: 700, left: 700 } } },
+      properties: {
+        page: {
+          size: { width: 16838, height: 11906, orientation: PageOrientation.LANDSCAPE },
+          margin: { top: 450, right: 900, bottom: 500, left: 900 },
+        },
+      },
       children: [
         new Paragraph({
-          bidirectional: true, alignment: AlignmentType.CENTER, heading: HeadingLevel.HEADING_1,
-          children: [new TextRun({ text: brandName, bold: true, size: 36, font: "Arial", rightToLeft: true })],
+          bidirectional: true,
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 70 },
+          children: [new TextRun({
+            text: "תוכנית עבודה שבועית",
+            bold: true,
+            size: 42,
+            color: COLORS.ink.slice(1),
+            font: DOCX_FONT,
+            rightToLeft: true,
+          })],
         }),
-        new Paragraph({
-          bidirectional: true, alignment: AlignmentType.CENTER,
-          children: [new TextRun({ text: `שבוע ${week.week} | ${monthName} ${week.year}`, size: 26, font: "Arial", rightToLeft: true })],
+        rtlPara(weekSubtitle(week), {
+          size: 20,
+          color: COLORS.muted,
+          align: AlignmentType.CENTER,
+          after: 180,
         }),
-        new Paragraph({ children: [new TextRun(" ")] }),
-        table,
-        ...(week.notes ? [new Paragraph({ children: [new TextRun(" ")] }), rtlPara("הערות שבועיות:", { bold: true }), rtlPara(week.notes)] : []),
-        ...sigPara("חתימת מנהל אתר אחסון", week.author_signature_name, week.author_signed_at),
-        ...sigPara("חתימת מנהל עבודה", week.approver_signature_name, week.approver_signed_at),
+        mainTable,
+        ...(week.notes ? [
+          rtlPara("הערות שבועיות", { bold: true, size: 17, color: COLORS.accentDark, before: 120, after: 30 }),
+          rtlPara(week.notes, { size: 15, color: COLORS.muted, after: 80 }),
+        ] : [rtlPara("", { after: 80 })]),
+        signatureTable,
       ],
     }],
   });
+}
 
-  const blob = await Packer.toBlob(doc);
+export async function downloadWeeklyDOCX(
+  week: WeekRow,
+  missions: MissionRow[],
+  dayNotes: DayNoteRow[] = [],
+) {
+  const { saveAs } = await import("file-saver");
+  const blob = await Packer.toBlob(createWeeklyDOCX(week, missions, dayNotes));
   saveAs(blob, `weekly-${week.year}-w${String(week.week).padStart(2, "0")}.docx`);
 }
