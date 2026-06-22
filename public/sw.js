@@ -8,8 +8,8 @@ self.addEventListener("push", (event) => {
   const title = data.title || "התראה";
   const options = {
     body: data.body || "",
-    icon: "/favicon.ico",
-    badge: "/favicon.ico",
+    icon: "/logistikam-logo.png",
+    badge: "/logistikam-logo.png",
     dir: "rtl",
     lang: "he",
     data: { url: data.url || "/shop/orders" },

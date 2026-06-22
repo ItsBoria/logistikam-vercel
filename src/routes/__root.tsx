@@ -89,12 +89,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "manifest", href: "/manifest.webmanifest" },
       {
         rel: "icon",
-        href: "/__l5e/assets-v1/0dab312d-233f-4836-8a79-b01fbd5cb8ba/logikam-logo.png",
+        href: "/logistikam-logo.png",
         type: "image/png",
       },
       {
         rel: "apple-touch-icon",
-        href: "/__l5e/assets-v1/0dab312d-233f-4836-8a79-b01fbd5cb8ba/logikam-logo.png",
+        href: "/logistikam-logo.png",
       },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },

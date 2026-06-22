@@ -12,14 +12,14 @@
   "lang": "he",
   "icons": [
     {
-      "src": "/__l5e/assets-v1/0dab312d-233f-4836-8a79-b01fbd5cb8ba/logikam-logo.png",
-      "sizes": "512x512",
+      "src": "/logistikam-logo.png",
+      "sizes": "256x256",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/__l5e/assets-v1/0dab312d-233f-4836-8a79-b01fbd5cb8ba/logikam-logo.png",
-      "sizes": "192x192",
+      "src": "/logistikam-logo.png",
+      "sizes": "256x256",
       "type": "image/png",
       "purpose": "any"
     }
