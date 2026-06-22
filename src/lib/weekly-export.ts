@@ -197,11 +197,12 @@ function wrappedLines(pdf: Pdf, text: string, width: number): string[] {
 function rtlTextLimited(
   pdf: Pdf,
   text: string,
-  xRight: number,
+  x: number,
   y: number,
   maxWidth: number,
   maxLines: number,
   lineHeight: number,
+  align: "right" | "center" = "right",
 ) {
   const allLines = wrappedLines(pdf, text, maxWidth);
   const lines = allLines.slice(0, maxLines);
@@ -209,8 +210,8 @@ function rtlTextLimited(
     lines[lines.length - 1] = `${lines[lines.length - 1]}…`;
   }
   lines.forEach((line, index) => {
-    pdf.text(toVisual(line), xRight, y + index * lineHeight, {
-      align: "right",
+    pdf.text(toVisual(line), x, y + index * lineHeight, {
+      align,
       ...VISUAL_TEXT_OPTIONS,
     } as any);
   });
@@ -306,11 +307,11 @@ function drawTableHeader(pdf: Pdf, week: WeekRow, y: number, geometry: PdfTableG
     pdf.setFont("Heebo", "bold");
     pdf.setFontSize(9.2);
     setPdfColor(pdf, "text", COLORS.ink);
-    rtlText(pdf, DAY_NAMES[index], left + width - 7, y + 14);
+    rtlText(pdf, DAY_NAMES[index], left + width / 2, y + 13, undefined, { align: "center" });
     pdf.setFont("Heebo", "normal");
     pdf.setFontSize(7.6);
     setPdfColor(pdf, "text", COLORS.muted);
-    pdf.text(fmtDate(date), left + 7, y + 14);
+    pdf.text(fmtDate(date), left + width / 2, y + 26, { align: "center" } as any);
 
     setPdfColor(pdf, "fill", COLORS.surface);
     setPdfColor(pdf, "draw", COLORS.border);
@@ -335,7 +336,9 @@ function drawSectionLabel(pdf: Pdf, text: string, y: number, height: number, geo
   pdf.setFont("Heebo", "bold");
   pdf.setFontSize(9);
   setPdfColor(pdf, "text", COLORS.accentDark);
-  rtlText(pdf, text, geometry.labelLeft + geometry.labelWidth - 7, y + height / 2 + 3, geometry.labelWidth - 14);
+  rtlText(pdf, text, geometry.labelLeft + geometry.labelWidth / 2, y + height / 2 + 3, geometry.labelWidth - 14, {
+    align: "center",
+  });
 }
 
 function drawInfluencers(
@@ -363,7 +366,12 @@ function drawInfluencers(
     pdf.setFont("Heebo", "normal");
     pdf.setFontSize(8);
     setPdfColor(pdf, "text", COLORS.ink);
-    rtlText(pdf, noteMap[day] ?? "", left + planWidth - 6, y + 15, planWidth - 12, { lineHeight: 10 });
+    const noteLines = wrappedLines(pdf, noteMap[day] ?? "", planWidth - 12);
+    const noteY = y + Math.max(12, (height - noteLines.length * 10) / 2 + 8);
+    rtlText(pdf, noteMap[day] ?? "", left + planWidth / 2, noteY, planWidth - 12, {
+      align: "center",
+      lineHeight: 10,
+    });
   });
   return y + height;
 }
@@ -383,49 +391,63 @@ function drawMissionPlan(
   const titleLineHeight = titleSize + 1.2;
   const time = mission.due_time?.slice(0, 5);
   const indicator = mission.done ? "✓" : "□";
+  const statusSize = veryDense ? 5.5 : dense ? 6.3 : 7.5;
+  const titleMaxLines = veryDense ? 1 : dense ? 2 : 3;
+  const titleLineCount = Math.max(
+    1,
+    Math.min(titleMaxLines, wrappedLines(pdf, mission.title, width - 12).length),
+  );
+  const detailLineHeight = detailSize + 1;
+  const detailMaxLines = mission.details
+    ? veryDense ? 0 : dense ? 1 : Math.max(1, Math.min(3, Math.floor(rowHeight / 30)))
+    : 0;
+  const detailLineCount = mission.details
+    ? Math.min(detailMaxLines, wrappedLines(pdf, mission.details, width - 12).length)
+    : 0;
+  const blockHeight = statusSize + 4
+    + titleLineCount * titleLineHeight
+    + (detailLineCount ? 2 + detailLineCount * detailLineHeight : 0);
+  const contentTop = y + Math.max(2, (rowHeight - blockHeight) / 2);
+
   pdf.setFont("Heebo", "bold");
-  pdf.setFontSize(veryDense ? 5.5 : dense ? 6.3 : 7.5);
+  pdf.setFontSize(statusSize);
   setPdfColor(pdf, "text", mission.done ? COLORS.completed : COLORS.accentDark);
-  pdf.text(indicator, left + width - 5, y + (veryDense ? 8 : 11), { align: "right" } as any);
-  if (time) {
-    pdf.setFont("Heebo", "normal");
-    pdf.setFontSize(veryDense ? 5.2 : dense ? 6 : 7);
-    setPdfColor(pdf, "text", COLORS.muted);
-    pdf.text(time, left + 5, y + (veryDense ? 8 : 11));
-  }
+  pdf.text(`${indicator}${time ? `  ${time}` : ""}`, left + width / 2, contentTop + statusSize, {
+    align: "center",
+  } as any);
 
   pdf.setFont("Heebo", "bold");
   pdf.setFontSize(titleSize);
   setPdfColor(pdf, "text", mission.done ? COLORS.completed : COLORS.ink);
-  const titleY = y + (veryDense ? 15 : dense ? 18 : 22);
-  const titleMaxLines = veryDense ? 1 : dense ? 2 : 3;
+  const titleY = contentTop + statusSize + 4 + titleSize;
   const titleHeight = rtlTextLimited(
     pdf,
     mission.title,
-    left + width - 6,
+    left + width / 2,
     titleY,
     width - 12,
     titleMaxLines,
     titleLineHeight,
+    "center",
   );
   if (mission.done) {
     setPdfColor(pdf, "draw", COLORS.completed);
     pdf.setLineWidth(0.35);
     pdf.line(left + 6, titleY - 2, left + width - 6, titleY - 2);
   }
-  const remaining = rowHeight - (titleY - y) - titleHeight - 3;
-  if (mission.details && remaining >= detailSize + 1) {
+  if (mission.details && detailLineCount) {
     pdf.setFont("Heebo", "normal");
     pdf.setFontSize(detailSize);
     setPdfColor(pdf, "text", COLORS.muted);
     rtlTextLimited(
       pdf,
       mission.details,
-      left + width - 6,
+      left + width / 2,
       titleY + titleHeight + 1,
       width - 12,
-      Math.max(1, Math.floor(remaining / (detailSize + 1))),
-      detailSize + 1,
+      detailLineCount,
+      detailLineHeight,
+      "center",
     );
   }
 }
@@ -643,7 +665,7 @@ function missionParagraphs(
   return [
     new Paragraph({
       bidirectional: true,
-      alignment: AlignmentType.RIGHT,
+      alignment: AlignmentType.CENTER,
       spacing: { after: density === "normal" ? 20 : 0, line: density === "very-dense" ? 125 : 160 },
       children: [
         new TextRun({
@@ -668,9 +690,14 @@ function missionParagraphs(
       size: titleSize,
       color: mission.done ? COLORS.completed : COLORS.ink,
       after: showDetails && mission.details ? 15 : 0,
+      align: AlignmentType.CENTER,
     }),
     ...(showDetails && mission.details
-      ? [rtlPara(mission.details, { size: detailSize, color: COLORS.muted })]
+      ? [rtlPara(mission.details, {
+        size: detailSize,
+        color: COLORS.muted,
+        align: AlignmentType.CENTER,
+      })]
       : []),
   ];
 }
@@ -713,8 +740,17 @@ export function createWeeklyDOCX(
       ...WORK_DAYS.map((day, index) => {
         const date = workdayDate(isoWeekToRange(week.year, week.week), day);
         return docxCell([
-          rtlPara(DAY_NAMES[index], { bold: true, size: 18, color: COLORS.ink }),
-          ltrPara(fmtDate(date), { size: 14, color: COLORS.muted }),
+          rtlPara(DAY_NAMES[index], {
+            bold: true,
+            size: 18,
+            color: COLORS.ink,
+            align: AlignmentType.CENTER,
+          }),
+          ltrPara(fmtDate(date), {
+            size: 14,
+            color: COLORS.muted,
+            align: AlignmentType.CENTER,
+          }),
         ], dayWidths[index], { fill: DAY_FILLS[index], span: 2, center: true });
       }),
     ],
@@ -748,10 +784,15 @@ export function createWeeklyDOCX(
         center: true,
       }),
       ...WORK_DAYS.flatMap((day, index) => [
-        docxCell(noteMap[day] ? [rtlPara(noteMap[day], { size: 13, color: COLORS.ink })] : [rtlPara("")], planWidths[index], {
+        docxCell(noteMap[day] ? [rtlPara(noteMap[day], {
+          size: 13,
+          color: COLORS.ink,
+          align: AlignmentType.CENTER,
+        })] : [rtlPara("")], planWidths[index], {
           compact: true,
+          center: true,
         }),
-        docxCell([rtlPara("")], execWidths[index]),
+        docxCell([rtlPara("", { align: AlignmentType.CENTER })], execWidths[index], { center: true }),
       ]),
     ],
   });
@@ -773,6 +814,7 @@ export function createWeeklyDOCX(
           docxCell(missionParagraphs(mission, density), planWidths[index], {
             fill: mission?.done ? COLORS.completedSoft : undefined,
             compact: true,
+            center: true,
           }),
           docxCell(mission
             ? [rtlPara(mission.done ? "הושלם" : "☐", {
