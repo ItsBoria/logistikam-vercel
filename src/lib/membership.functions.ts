@@ -42,8 +42,10 @@ export const listActiveTeams = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: isAdmin } = await supabaseAdmin
-      .rpc("has_role", { _user_id: context.userId, _role: "admin" });
+    const { data: isAdmin } = await supabaseAdmin.rpc("has_role", {
+      _user_id: context.userId,
+      _role: "admin",
+    });
     let q = supabaseAdmin
       .from("teams")
       .select("id, name, is_admin_only")
@@ -59,15 +61,23 @@ export const setMyTeam = createServerFn({ method: "POST" })
   .inputValidator((input) => z.object({ team_id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: isAdmin } = await supabaseAdmin
-      .rpc("has_role", { _user_id: context.userId, _role: "admin" });
+    const { data: isAdmin } = await supabaseAdmin.rpc("has_role", {
+      _user_id: context.userId,
+      _role: "admin",
+    });
     const { data: existing } = await supabaseAdmin
-      .from("team_members").select("team_id").eq("user_id", context.userId).maybeSingle();
+      .from("team_members")
+      .select("team_id")
+      .eq("user_id", context.userId)
+      .maybeSingle();
     if (existing && !isAdmin) {
       throw new Error("הצוות שלך כבר נקבע — פנה למנהל לשינוי");
     }
     const { data: t } = await supabaseAdmin
-      .from("teams").select("id, active, is_admin_only").eq("id", data.team_id).maybeSingle();
+      .from("teams")
+      .select("id, active, is_admin_only")
+      .eq("id", data.team_id)
+      .maybeSingle();
     if (!t || !t.active) throw new Error("צוות לא תקין");
     if (t.is_admin_only && !isAdmin) throw new Error("צוות לא תקין");
     const { error } = await supabaseAdmin
@@ -79,22 +89,34 @@ export const setMyTeam = createServerFn({ method: "POST" })
 
 export const setUserTeamAdmin = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input) => z.object({
-    user_id: z.string().uuid(),
-    team_id: z.string().uuid().nullable(),
-  }).parse(input))
+  .inputValidator((input) =>
+    z
+      .object({
+        user_id: z.string().uuid(),
+        team_id: z.string().uuid().nullable(),
+      })
+      .parse(input),
+  )
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: isAdmin } = await supabaseAdmin
-      .rpc("has_role", { _user_id: context.userId, _role: "admin" });
+    const { data: isAdmin } = await supabaseAdmin.rpc("has_role", {
+      _user_id: context.userId,
+      _role: "admin",
+    });
     if (!isAdmin) throw new Error("גישה לאדמין בלבד");
     if (data.team_id === null) {
-      const { error } = await supabaseAdmin.from("team_members").delete().eq("user_id", data.user_id);
+      const { error } = await supabaseAdmin
+        .from("team_members")
+        .delete()
+        .eq("user_id", data.user_id);
       if (error) throw new Error(error.message);
       return { ok: true };
     }
     const { data: t } = await supabaseAdmin
-      .from("teams").select("id, active").eq("id", data.team_id).maybeSingle();
+      .from("teams")
+      .select("id, active")
+      .eq("id", data.team_id)
+      .maybeSingle();
     if (!t || !t.active) throw new Error("צוות לא תקין");
     const { error } = await supabaseAdmin
       .from("team_members")
@@ -103,19 +125,22 @@ export const setUserTeamAdmin = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-
 // Admin "view shop as": resolves any team to the same context shape the shop uses.
 export const getTeamContextById = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input) => z.object({ team_id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }): Promise<TeamContext> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: isAdmin } = await supabaseAdmin
-      .rpc("has_role", { _user_id: context.userId, _role: "admin" });
+    const { data: isAdmin } = await supabaseAdmin.rpc("has_role", {
+      _user_id: context.userId,
+      _role: "admin",
+    });
     if (!isAdmin) throw new Error("Forbidden");
     const { data: t } = await supabaseAdmin
-      .from("teams").select("id, name, pin, monthly_limit, contact_phone, active")
-      .eq("id", data.team_id).maybeSingle();
+      .from("teams")
+      .select("id, name, pin, monthly_limit, contact_phone, active")
+      .eq("id", data.team_id)
+      .maybeSingle();
     if (!t || !t.active) throw new Error("צוות לא תקין");
     return {
       team_id: t.id,
@@ -131,10 +156,12 @@ export const getTeamContextById = createServerFn({ method: "POST" })
 export const claimAdminWithLegacyCreds = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input) =>
-    z.object({
-      identifier: z.string().min(2).max(254),
-      password: z.string().min(1).max(72),
-    }).parse(input)
+    z
+      .object({
+        identifier: z.string().min(2).max(254),
+        password: z.string().min(1).max(72),
+      })
+      .parse(input),
   )
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -153,19 +180,32 @@ export const claimAdminWithLegacyCreds = createServerFn({ method: "POST" })
     if (byMeta?.email) candidates.unshift(byMeta.email);
 
     // Verify password using a transient client so we don't disturb the current session.
-    const url = process.env.SUPABASE_URL!;
-    const anon = process.env.SUPABASE_PUBLISHABLE_KEY!;
-    const tmp = createClient(url, anon, { auth: { persistSession: false, autoRefreshToken: false } });
+    const url = (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL)!;
+    const anon = (process.env.SUPABASE_PUBLISHABLE_KEY ||
+      process.env.SUPABASE_ANON_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)!;
+    const tmp = createClient(url, anon, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
     let legacyUserId: string | null = null;
     for (const email of candidates) {
-      const { data: r, error } = await tmp.auth.signInWithPassword({ email, password: data.password });
-      if (!error && r.user) { legacyUserId = r.user.id; break; }
+      const { data: r, error } = await tmp.auth.signInWithPassword({
+        email,
+        password: data.password,
+      });
+      if (!error && r.user) {
+        legacyUserId = r.user.id;
+        break;
+      }
     }
     if (!legacyUserId) throw new Error("שם משתמש או סיסמה שגויים");
 
     // Confirm the legacy account actually has admin role
-    const { data: isAdminLegacy } = await supabaseAdmin
-      .rpc("has_role", { _user_id: legacyUserId, _role: "admin" });
+    const { data: isAdminLegacy } = await supabaseAdmin.rpc("has_role", {
+      _user_id: legacyUserId,
+      _role: "admin",
+    });
     if (!isAdminLegacy) throw new Error("חשבון זה אינו מנהל");
 
     // Grant admin to the currently signed-in user
