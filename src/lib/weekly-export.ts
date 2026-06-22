@@ -23,7 +23,7 @@ import {
   WORK_DAYS,
   isoWeekToWorkweekRange,
   workdayDate,
-} from "./workweek";
+} from "./workweek.ts";
 
 const bidi = bidiFactory();
 
@@ -194,13 +194,27 @@ function wrappedLines(pdf: Pdf, text: string, width: number): string[] {
   return pdf.splitTextToSize(text, width) as string[];
 }
 
-function missionHeight(pdf: Pdf, mission: MissionRow | undefined, width: number): number {
-  if (!mission) return 34;
-  pdf.setFontSize(8.5);
-  const titleLines = wrappedLines(pdf, mission.title, width - 12).length;
-  pdf.setFontSize(7.4);
-  const detailLines = mission.details ? wrappedLines(pdf, mission.details, width - 12).length : 0;
-  return Math.max(38, 17 + titleLines * 10 + detailLines * 8 + (mission.details ? 4 : 0));
+function rtlTextLimited(
+  pdf: Pdf,
+  text: string,
+  xRight: number,
+  y: number,
+  maxWidth: number,
+  maxLines: number,
+  lineHeight: number,
+) {
+  const allLines = wrappedLines(pdf, text, maxWidth);
+  const lines = allLines.slice(0, maxLines);
+  if (allLines.length > maxLines && lines.length) {
+    lines[lines.length - 1] = `${lines[lines.length - 1]}…`;
+  }
+  lines.forEach((line, index) => {
+    pdf.text(toVisual(line), xRight, y + index * lineHeight, {
+      align: "right",
+      ...VISUAL_TEXT_OPTIONS,
+    } as any);
+  });
+  return lines.length * lineHeight;
 }
 
 function drawHeader(pdf: Pdf, week: WeekRow, compact = false) {
@@ -354,35 +368,65 @@ function drawInfluencers(
   return y + height;
 }
 
-function drawMissionPlan(pdf: Pdf, mission: MissionRow, left: number, y: number, width: number) {
+function drawMissionPlan(
+  pdf: Pdf,
+  mission: MissionRow,
+  left: number,
+  y: number,
+  width: number,
+  rowHeight: number,
+) {
+  const dense = rowHeight < 40;
+  const veryDense = rowHeight < 27;
+  const titleSize = veryDense ? 5.7 : dense ? 6.7 : 8.2;
+  const detailSize = dense ? 5.5 : 6.8;
+  const titleLineHeight = titleSize + 1.2;
   const time = mission.due_time?.slice(0, 5);
   const indicator = mission.done ? "✓" : "□";
   pdf.setFont("Heebo", "bold");
-  pdf.setFontSize(8);
+  pdf.setFontSize(veryDense ? 5.5 : dense ? 6.3 : 7.5);
   setPdfColor(pdf, "text", mission.done ? COLORS.completed : COLORS.accentDark);
-  pdf.text(indicator, left + width - 7, y + 13, { align: "right" } as any);
+  pdf.text(indicator, left + width - 5, y + (veryDense ? 8 : 11), { align: "right" } as any);
   if (time) {
     pdf.setFont("Heebo", "normal");
-    pdf.setFontSize(7.5);
+    pdf.setFontSize(veryDense ? 5.2 : dense ? 6 : 7);
     setPdfColor(pdf, "text", COLORS.muted);
-    pdf.text(time, left + 6, y + 13);
+    pdf.text(time, left + 5, y + (veryDense ? 8 : 11));
   }
 
   pdf.setFont("Heebo", "bold");
-  pdf.setFontSize(8.5);
+  pdf.setFontSize(titleSize);
   setPdfColor(pdf, "text", mission.done ? COLORS.completed : COLORS.ink);
-  const titleY = y + 24;
-  const titleHeight = rtlText(pdf, mission.title, left + width - 7, titleY, width - 14, { lineHeight: 10 });
+  const titleY = y + (veryDense ? 15 : dense ? 18 : 22);
+  const titleMaxLines = veryDense ? 1 : dense ? 2 : 3;
+  const titleHeight = rtlTextLimited(
+    pdf,
+    mission.title,
+    left + width - 6,
+    titleY,
+    width - 12,
+    titleMaxLines,
+    titleLineHeight,
+  );
   if (mission.done) {
     setPdfColor(pdf, "draw", COLORS.completed);
     pdf.setLineWidth(0.35);
-    pdf.line(left + 7, titleY - 3, left + width - 7, titleY - 3);
+    pdf.line(left + 6, titleY - 2, left + width - 6, titleY - 2);
   }
-  if (mission.details) {
+  const remaining = rowHeight - (titleY - y) - titleHeight - 3;
+  if (mission.details && remaining >= detailSize + 1) {
     pdf.setFont("Heebo", "normal");
-    pdf.setFontSize(7.2);
+    pdf.setFontSize(detailSize);
     setPdfColor(pdf, "text", COLORS.muted);
-    rtlText(pdf, mission.details, left + width - 7, titleY + titleHeight + 2, width - 14, { lineHeight: 8 });
+    rtlTextLimited(
+      pdf,
+      mission.details,
+      left + width - 6,
+      titleY + titleHeight + 1,
+      width - 12,
+      Math.max(1, Math.floor(remaining / (detailSize + 1))),
+      detailSize + 1,
+    );
   }
 }
 
@@ -392,10 +436,8 @@ function drawMissionRow(
   rowIndex: number,
   geometry: PdfTableGeometry,
   grouped: Record<number, MissionRow[]>,
+  rowHeight: number,
 ): number {
-  const rowHeight = Math.max(...WORK_DAYS.map((day, index) => (
-    missionHeight(pdf, grouped[day]?.[rowIndex], geometry.planWidths[index])
-  )));
   drawSectionLabel(pdf, rowIndex === 0 ? "משימות" : "", y, rowHeight, geometry);
 
   WORK_DAYS.forEach((day, index) => {
@@ -409,15 +451,15 @@ function drawMissionRow(
     pdf.rect(left, y, planWidth, rowHeight, "FD");
     pdf.rect(left + planWidth, y, execWidth, rowHeight, "FD");
     if (!mission) return;
-    drawMissionPlan(pdf, mission, left, y, planWidth);
+    drawMissionPlan(pdf, mission, left, y, planWidth, rowHeight);
     if (mission.done) {
       pdf.setFont("Heebo", "bold");
-      pdf.setFontSize(7.2);
+      pdf.setFontSize(rowHeight < 30 ? 5.4 : 7);
       setPdfColor(pdf, "text", COLORS.completed);
       rtlText(pdf, "הושלם", left + planWidth + execWidth / 2, y + rowHeight / 2 + 3, undefined, { align: "center" });
     } else {
       pdf.setFont("Heebo", "normal");
-      pdf.setFontSize(10);
+      pdf.setFontSize(rowHeight < 30 ? 6 : 9);
       setPdfColor(pdf, "text", COLORS.borderStrong);
       pdf.text("□", left + planWidth + execWidth / 2, y + rowHeight / 2 + 3, { align: "center" } as any);
     }
@@ -485,25 +527,12 @@ export async function createWeeklyPDF(
   const maxMissionRows = Math.max(1, ...WORK_DAYS.map((day) => grouped[day]?.length ?? 0));
   const bottomLimit = pdf.internal.pageSize.getHeight() - 94;
 
-  let rowIndex = 0;
-  let page = 0;
-  while (rowIndex < maxMissionRows || page === 0) {
-    if (page > 0) pdf.addPage("a4", "landscape");
-    drawHeader(pdf, week, page > 0);
-    let y = drawTableHeader(pdf, week, page > 0 ? 57 : 75, geometry);
-    if (page === 0) y = drawInfluencers(pdf, y, geometry, noteMap);
-
-    let drewRow = false;
-    while (rowIndex < maxMissionRows) {
-      const nextHeight = Math.max(...WORK_DAYS.map((day, index) => (
-        missionHeight(pdf, grouped[day]?.[rowIndex], geometry.planWidths[index])
-      )));
-      if (drewRow && y + nextHeight > bottomLimit) break;
-      y += drawMissionRow(pdf, y, rowIndex, geometry, grouped);
-      rowIndex += 1;
-      drewRow = true;
-    }
-    page += 1;
+  drawHeader(pdf, week);
+  let y = drawTableHeader(pdf, week, 75, geometry);
+  y = drawInfluencers(pdf, y, geometry, noteMap);
+  const rowHeight = (bottomLimit - y) / maxMissionRows;
+  for (let rowIndex = 0; rowIndex < maxMissionRows; rowIndex += 1) {
+    y += drawMissionRow(pdf, y, rowIndex, geometry, grouped, rowHeight);
   }
 
   if (week.notes) {
@@ -585,7 +614,7 @@ function ltrPara(text: string, options: RtlParagraphOptions = {}) {
 function docxCell(
   children: Paragraph[],
   width: number,
-  options: { fill?: string; span?: number; center?: boolean } = {},
+  options: { fill?: string; span?: number; center?: boolean; compact?: boolean } = {},
 ) {
   return new TableCell({
     width: { size: width, type: WidthType.DXA },
@@ -594,32 +623,40 @@ function docxCell(
     shading: options.fill
       ? { fill: options.fill.replace("#", ""), type: ShadingType.CLEAR, color: "auto" }
       : undefined,
-    margins: { top: 90, bottom: 90, left: 100, right: 100 },
+    margins: options.compact
+      ? { top: 25, bottom: 25, left: 55, right: 55 }
+      : { top: 70, bottom: 70, left: 90, right: 90 },
     verticalAlign: options.center ? VerticalAlign.CENTER : VerticalAlign.TOP,
     children: children.length ? children : [rtlPara("")],
   });
 }
 
-function missionParagraphs(mission: MissionRow | undefined): Paragraph[] {
+function missionParagraphs(
+  mission: MissionRow | undefined,
+  density: "normal" | "dense" | "very-dense",
+): Paragraph[] {
   if (!mission) return [rtlPara("")];
   const time = mission.due_time?.slice(0, 5);
+  const titleSize = density === "very-dense" ? 11 : density === "dense" ? 13 : 16;
+  const detailSize = density === "very-dense" ? 9 : density === "dense" ? 11 : 13;
+  const showDetails = density !== "very-dense";
   return [
     new Paragraph({
       bidirectional: true,
       alignment: AlignmentType.RIGHT,
-      spacing: { after: 35, line: 220 },
+      spacing: { after: density === "normal" ? 20 : 0, line: density === "very-dense" ? 125 : 160 },
       children: [
         new TextRun({
           text: mission.done ? "☑ " : "☐ ",
           bold: true,
-          size: 17,
+          size: titleSize,
           color: (mission.done ? COLORS.completed : COLORS.accentDark).slice(1),
           font: DOCX_FONT,
           rightToLeft: true,
         }),
         ...(time ? [new TextRun({
           text: `${time}  `,
-          size: 15,
+          size: Math.max(9, titleSize - 1),
           color: COLORS.muted.slice(1),
           font: DOCX_FONT,
           rightToLeft: false,
@@ -628,11 +665,13 @@ function missionParagraphs(mission: MissionRow | undefined): Paragraph[] {
     }),
     rtlPara(mission.title, {
       bold: true,
-      size: 18,
+      size: titleSize,
       color: mission.done ? COLORS.completed : COLORS.ink,
-      after: mission.details ? 35 : 0,
+      after: showDetails && mission.details ? 15 : 0,
     }),
-    ...(mission.details ? [rtlPara(mission.details, { size: 15, color: COLORS.muted })] : []),
+    ...(showDetails && mission.details
+      ? [rtlPara(mission.details, { size: detailSize, color: COLORS.muted })]
+      : []),
   ];
 }
 
@@ -665,7 +704,7 @@ export function createWeeklyDOCX(
   const headerRow = new TableRow({
     tableHeader: true,
     cantSplit: true,
-    height: { value: 500, rule: HeightRule.ATLEAST },
+    height: { value: 440, rule: HeightRule.EXACT },
     children: [
       docxCell([rtlPara("קטגוריה", { bold: true, size: 18, color: "#FFFFFF", align: AlignmentType.CENTER })], labelWidth, {
         fill: COLORS.ink,
@@ -684,7 +723,7 @@ export function createWeeklyDOCX(
   const subHeaderRow = new TableRow({
     tableHeader: true,
     cantSplit: true,
-    height: { value: 310, rule: HeightRule.ATLEAST },
+    height: { value: 260, rule: HeightRule.EXACT },
     children: [
       docxCell([rtlPara("")], labelWidth, { fill: COLORS.ink }),
       ...WORK_DAYS.flatMap((_, index) => [
@@ -702,23 +741,28 @@ export function createWeeklyDOCX(
 
   const influencerRow = new TableRow({
     cantSplit: true,
-    height: { value: 760, rule: HeightRule.ATLEAST },
+    height: { value: 620, rule: HeightRule.EXACT },
     children: [
       docxCell([rtlPara("גורמים\nמשפיעים", { bold: true, size: 18, color: COLORS.accentDark, align: AlignmentType.CENTER })], labelWidth, {
         fill: COLORS.accentSoft,
         center: true,
       }),
       ...WORK_DAYS.flatMap((day, index) => [
-        docxCell(noteMap[day] ? [rtlPara(noteMap[day], { size: 16, color: COLORS.ink })] : [rtlPara("")], planWidths[index]),
+        docxCell(noteMap[day] ? [rtlPara(noteMap[day], { size: 13, color: COLORS.ink })] : [rtlPara("")], planWidths[index], {
+          compact: true,
+        }),
         docxCell([rtlPara("")], execWidths[index]),
       ]),
     ],
   });
 
   const maxMissionRows = Math.max(1, ...WORK_DAYS.map((day) => grouped[day]?.length ?? 0));
+  const density = maxMissionRows >= 13 ? "very-dense" : maxMissionRows >= 8 ? "dense" : "normal";
+  const missionBudget = 5_900;
+  const missionRowHeight = Math.floor(missionBudget / maxMissionRows);
   const missionRows = Array.from({ length: maxMissionRows }, (_, rowIndex) => new TableRow({
     cantSplit: true,
-    height: { value: 560, rule: HeightRule.ATLEAST },
+    height: { value: missionRowHeight, rule: HeightRule.EXACT },
     children: [
       docxCell(rowIndex === 0
         ? [rtlPara("משימות", { bold: true, size: 18, color: COLORS.accentDark, align: AlignmentType.CENTER })]
@@ -726,15 +770,22 @@ export function createWeeklyDOCX(
       ...WORK_DAYS.flatMap((day, index) => {
         const mission = grouped[day]?.[rowIndex];
         return [
-          docxCell(missionParagraphs(mission), planWidths[index], { fill: mission?.done ? COLORS.completedSoft : undefined }),
+          docxCell(missionParagraphs(mission, density), planWidths[index], {
+            fill: mission?.done ? COLORS.completedSoft : undefined,
+            compact: true,
+          }),
           docxCell(mission
             ? [rtlPara(mission.done ? "הושלם" : "☐", {
               bold: mission.done,
-              size: mission.done ? 14 : 18,
+              size: density === "very-dense" ? 10 : mission.done ? 13 : 16,
               color: mission.done ? COLORS.completed : COLORS.borderStrong,
               align: AlignmentType.CENTER,
             })]
-            : [rtlPara("")], execWidths[index], { fill: mission?.done ? COLORS.completedSoft : undefined, center: true }),
+            : [rtlPara("")], execWidths[index], {
+              fill: mission?.done ? COLORS.completedSoft : undefined,
+              center: true,
+              compact: true,
+            }),
         ];
       }),
     ],
@@ -791,34 +842,34 @@ export function createWeeklyDOCX(
       properties: {
         page: {
           size: { width: 16838, height: 11906, orientation: PageOrientation.LANDSCAPE },
-          margin: { top: 450, right: 900, bottom: 500, left: 900 },
+          margin: { top: 260, right: 900, bottom: 260, left: 900 },
         },
       },
       children: [
         new Paragraph({
           bidirectional: true,
           alignment: AlignmentType.CENTER,
-          spacing: { after: 70 },
+          spacing: { after: 35 },
           children: [new TextRun({
             text: "תוכנית עבודה שבועית",
             bold: true,
-            size: 42,
+            size: 34,
             color: COLORS.ink.slice(1),
             font: DOCX_FONT,
             rightToLeft: true,
           })],
         }),
         rtlPara(weekSubtitle(week), {
-          size: 20,
+          size: 17,
           color: COLORS.muted,
           align: AlignmentType.CENTER,
-          after: 180,
+          after: 90,
         }),
         mainTable,
         ...(week.notes ? [
-          rtlPara("הערות שבועיות", { bold: true, size: 17, color: COLORS.accentDark, before: 120, after: 30 }),
-          rtlPara(week.notes, { size: 15, color: COLORS.muted, after: 80 }),
-        ] : [rtlPara("", { after: 80 })]),
+          rtlPara("הערות שבועיות", { bold: true, size: 13, color: COLORS.accentDark, before: 45, after: 10 }),
+          rtlPara(week.notes, { size: 11, color: COLORS.muted, after: 30 }),
+        ] : [rtlPara("", { after: 25 })]),
         signatureTable,
       ],
     }],
