@@ -62,7 +62,7 @@ function Home() {
     if (teamQ.data) {
       setTeamSession(teamQ.data);
       setAdminActing(false);
-      navigate({ to: "/shop", replace: true });
+      navigate({ to: "/shop/dashboard" as any, replace: true });
     } else {
       navigate({ to: "/select-team", replace: true });
     }

@@ -44,7 +44,10 @@ export const getShopData = createServerFn({ method: "POST" })
       .eq("pin", data.pin.trim()).eq("active", true).maybeSingle();
     if (!team) throw new Error("צוות לא תקין");
     const [{ data: products }, { data: spent }, { data: period }] = await Promise.all([
-      supabaseAdmin.from("products").select("*").eq("active", true).order("name"),
+      (supabaseAdmin as any).from("products")
+        .select("*, item_categories(id, name, code, color, is_active)")
+        .eq("active", true).eq("can_be_ordered", true)
+        .eq("item_categories.is_active", true).order("name"),
       supabaseAdmin.rpc("team_month_spent", { _team_id: team.id }),
       (supabaseAdmin as any).from("budget_periods")
         .select("id, policy_id, starting_budget, carry_over_amount, starts_at, ends_at")
@@ -63,6 +66,7 @@ export const getShopData = createServerFn({ method: "POST" })
       team: { ...team, monthly_limit: allocatedBudget },
       products: resolved.map((product) => ({
         ...product,
+        category: product.item_categories?.name ?? product.category,
         price: addVat(Number(product.price)),
       })),
       spent: Number(spent ?? 0),
@@ -102,18 +106,31 @@ export const placeOrder = createServerFn({ method: "POST" })
     if (!team || !team.active) throw new Error("צוות לא תקין");
 
     const ids = data.items.map(i => i.product_id);
-    const { data: products } = await supabaseAdmin
-      .from("products").select("id, name, price, stock, active").in("id", ids);
+    const { data: products } = await (supabaseAdmin as any)
+      .from("products")
+      .select("id, name, price, stock, active, category_id, can_be_ordered, maximum_quantity, item_categories(is_active)")
+      .in("id", ids);
     if (!products || products.length !== ids.length) throw new Error("חלק מהמוצרים לא נמצאו");
 
     let total = 0;
     const orderItems = data.items.map(i => {
-      const p = products.find(x => x.id === i.product_id)!;
-      if (!p.active) throw new Error(`המוצר ${p.name} אינו זמין`);
+      const p = products.find((x: any) => x.id === i.product_id)!;
+      if (!p.active || !p.can_be_ordered || !p.item_categories?.is_active) {
+        throw new Error(`המוצר ${p.name} אינו מאושר להזמנה`);
+      }
+      if (p.maximum_quantity && i.quantity > p.maximum_quantity) {
+        throw new Error(`הכמות המרבית עבור ${p.name} היא ${p.maximum_quantity}`);
+      }
       if (p.stock < i.quantity) throw new Error(`אין מספיק מלאי עבור ${p.name}`);
       const priceWithVat = addVat(Number(p.price));
       total += priceWithVat * i.quantity;
-      return { product_id: p.id, name: p.name, price: priceWithVat, quantity: i.quantity };
+      return {
+        product_id: p.id,
+        category_id: p.category_id,
+        name: p.name,
+        price: priceWithVat,
+        quantity: i.quantity,
+      };
     });
 
     const { data: spentResp } = await supabaseAdmin.rpc("team_month_spent", { _team_id: team.id });
@@ -140,13 +157,13 @@ export const placeOrder = createServerFn({ method: "POST" })
       .single();
     if (orderErr || !order) throw new Error(orderErr?.message || "שגיאה ביצירת הזמנה");
 
-    const { error: itemsErr } = await supabaseAdmin
+    const { error: itemsErr } = await (supabaseAdmin as any)
       .from("order_items")
       .insert(orderItems.map(it => ({ ...it, order_id: order.id })));
     if (itemsErr) throw new Error(itemsErr.message);
 
     for (const it of orderItems) {
-        const p = products.find(x => x.id === it.product_id)!;
+        const p = products.find((x: any) => x.id === it.product_id)!;
         const newStock = p.stock - it.quantity;
         await supabaseAdmin.from("products").update({ stock: newStock }).eq("id", p.id);
         // Low-stock admin notification if this deduction crossed the threshold.
@@ -351,18 +368,32 @@ export const editOrder = createServerFn({ method: "POST" })
     }
 
     const ids = data.items.map((i) => i.product_id);
-    const { data: products } = await supabaseAdmin
-      .from("products").select("id, name, price, stock, active").in("id", ids);
+    const { data: products } = await (supabaseAdmin as any)
+      .from("products")
+      .select("id, name, price, stock, active, category_id, can_be_ordered, maximum_quantity, item_categories(is_active)")
+      .in("id", ids);
     if (!products || products.length !== ids.length) throw new Error("חלק מהמוצרים לא נמצאו");
 
     let total = 0;
     const newItems = data.items.map((i) => {
       const p = products.find((x: any) => x.id === i.product_id)!;
-      if (!p.active) throw new Error(`המוצר ${p.name} אינו זמין`);
+      if (!p.active || !p.can_be_ordered || !p.item_categories?.is_active) {
+        throw new Error(`המוצר ${p.name} אינו מאושר להזמנה`);
+      }
+      if (p.maximum_quantity && i.quantity > p.maximum_quantity) {
+        throw new Error(`הכמות המרבית עבור ${p.name} היא ${p.maximum_quantity}`);
+      }
       if (Number(p.stock) < i.quantity) throw new Error(`אין מספיק מלאי עבור ${p.name}`);
       const priceWithVat = addVat(Number(p.price));
       total += priceWithVat * i.quantity;
-      return { order_id: order.id, product_id: p.id, name: p.name, price: priceWithVat, quantity: i.quantity };
+      return {
+        order_id: order.id,
+        product_id: p.id,
+        category_id: p.category_id,
+        name: p.name,
+        price: priceWithVat,
+        quantity: i.quantity,
+      };
     });
 
     // Recompute status against monthly limit, excluding this order's current total
@@ -374,7 +405,7 @@ export const editOrder = createServerFn({ method: "POST" })
 
     // Replace items
     await supabaseAdmin.from("order_items").delete().eq("order_id", order.id);
-    const { error: insErr } = await supabaseAdmin.from("order_items").insert(newItems);
+    const { error: insErr } = await (supabaseAdmin as any).from("order_items").insert(newItems);
     if (insErr) throw new Error(insErr.message);
 
     // Update order

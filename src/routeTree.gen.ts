@@ -15,6 +15,7 @@ import { Route as ShopIndexRouteImport } from './routes/shop.index'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as ShopReplacementsRouteImport } from './routes/shop.replacements'
 import { Route as ShopOrdersRouteImport } from './routes/shop.orders'
+import { Route as ShopDashboardRouteImport } from './routes/shop.dashboard'
 import { Route as AdminUsersRouteImport } from './routes/admin.users'
 import { Route as AdminTeamsRouteImport } from './routes/admin.teams'
 import { Route as AdminStockRouteImport } from './routes/admin.stock'
@@ -57,6 +58,11 @@ const ShopReplacementsRoute = ShopReplacementsRouteImport.update({
 const ShopOrdersRoute = ShopOrdersRouteImport.update({
   id: '/shop/orders',
   path: '/shop/orders',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ShopDashboardRoute = ShopDashboardRouteImport.update({
+  id: '/shop/dashboard',
+  path: '/shop/dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminUsersRoute = AdminUsersRouteImport.update({
@@ -142,6 +148,7 @@ export interface FileRoutesByFullPath {
   '/admin/stock': typeof AdminStockRoute
   '/admin/teams': typeof AdminTeamsRoute
   '/admin/users': typeof AdminUsersRoute
+  '/shop/dashboard': typeof ShopDashboardRoute
   '/shop/orders': typeof ShopOrdersRoute
   '/shop/replacements': typeof ShopReplacementsRoute
   '/admin/': typeof AdminIndexRoute
@@ -163,6 +170,7 @@ export interface FileRoutesByTo {
   '/admin/stock': typeof AdminStockRoute
   '/admin/teams': typeof AdminTeamsRoute
   '/admin/users': typeof AdminUsersRoute
+  '/shop/dashboard': typeof ShopDashboardRoute
   '/shop/orders': typeof ShopOrdersRoute
   '/shop/replacements': typeof ShopReplacementsRoute
   '/admin': typeof AdminIndexRoute
@@ -185,6 +193,7 @@ export interface FileRoutesById {
   '/admin/stock': typeof AdminStockRoute
   '/admin/teams': typeof AdminTeamsRoute
   '/admin/users': typeof AdminUsersRoute
+  '/shop/dashboard': typeof ShopDashboardRoute
   '/shop/orders': typeof ShopOrdersRoute
   '/shop/replacements': typeof ShopReplacementsRoute
   '/admin/': typeof AdminIndexRoute
@@ -208,6 +217,7 @@ export interface FileRouteTypes {
     | '/admin/stock'
     | '/admin/teams'
     | '/admin/users'
+    | '/shop/dashboard'
     | '/shop/orders'
     | '/shop/replacements'
     | '/admin/'
@@ -229,6 +239,7 @@ export interface FileRouteTypes {
     | '/admin/stock'
     | '/admin/teams'
     | '/admin/users'
+    | '/shop/dashboard'
     | '/shop/orders'
     | '/shop/replacements'
     | '/admin'
@@ -250,6 +261,7 @@ export interface FileRouteTypes {
     | '/admin/stock'
     | '/admin/teams'
     | '/admin/users'
+    | '/shop/dashboard'
     | '/shop/orders'
     | '/shop/replacements'
     | '/admin/'
@@ -272,6 +284,7 @@ export interface RootRouteChildren {
   AdminStockRoute: typeof AdminStockRoute
   AdminTeamsRoute: typeof AdminTeamsRoute
   AdminUsersRoute: typeof AdminUsersRoute
+  ShopDashboardRoute: typeof ShopDashboardRoute
   ShopOrdersRoute: typeof ShopOrdersRoute
   ShopReplacementsRoute: typeof ShopReplacementsRoute
   AdminIndexRoute: typeof AdminIndexRoute
@@ -320,6 +333,13 @@ declare module '@tanstack/react-router' {
       path: '/shop/orders'
       fullPath: '/shop/orders'
       preLoaderRoute: typeof ShopOrdersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/shop/dashboard': {
+      id: '/shop/dashboard'
+      path: '/shop/dashboard'
+      fullPath: '/shop/dashboard'
+      preLoaderRoute: typeof ShopDashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/users': {
@@ -432,6 +452,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminStockRoute: AdminStockRoute,
   AdminTeamsRoute: AdminTeamsRoute,
   AdminUsersRoute: AdminUsersRoute,
+  ShopDashboardRoute: ShopDashboardRoute,
   ShopOrdersRoute: ShopOrdersRoute,
   ShopReplacementsRoute: ShopReplacementsRoute,
   AdminIndexRoute: AdminIndexRoute,

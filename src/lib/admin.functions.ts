@@ -364,11 +364,49 @@ const productSchema = z.object({
   description: z.string().max(2000).optional().nullable(),
   price: z.number().min(0).max(10_000_000),
   stock: z.number().int().min(0).max(10_000_000),
-  category: z.string().max(100).optional().nullable(),
+  category_id: z.string().uuid(),
+  item_code: z.string().trim().max(50).optional().nullable(),
+  unit_of_measure: z.string().trim().min(1).max(50).default("יחידה"),
+  can_be_ordered: z.boolean().default(true),
+  can_be_replacement: z.boolean().default(true),
+  maximum_quantity: z.number().int().min(1).max(1_000_000).optional().nullable(),
   image_url: imageUrlSchema,
   active: z.boolean(),
   low_stock_threshold: z.number().int().min(0).max(10_000_000).nullable().optional(),
 });
+
+export const listItemCategoriesAdmin = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdminOrStaff(context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data, error } = await (supabaseAdmin as any)
+      .from("item_categories").select("*").order("display_order").order("name");
+    if (error && error.code !== "42P01") throw new Error(error.message);
+    return data ?? [];
+  });
+
+export const upsertItemCategory = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({
+    id: z.string().uuid().optional(),
+    code: z.string().trim().regex(/^[A-Za-z0-9_-]{1,50}$/),
+    name: z.string().trim().min(1).max(100),
+    description: z.string().trim().max(500).optional().nullable(),
+    is_active: z.boolean(),
+    display_order: z.number().int().min(0).max(10000),
+    color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional().nullable(),
+  }).parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const query = data.id
+      ? (supabaseAdmin as any).from("item_categories").update(data).eq("id", data.id)
+      : (supabaseAdmin as any).from("item_categories").insert(data);
+    const { error } = await query;
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
 
 // ---- App settings ----
 export const getAppSettings = createServerFn({ method: "GET" })
@@ -403,12 +441,15 @@ export const upsertProduct = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const payload = { ...data, image_url: data.image_url || null };
+    const { data: category } = await (supabaseAdmin as any)
+      .from("item_categories").select("id, name").eq("id", data.category_id).maybeSingle();
+    if (!category) throw new Error("יש לבחור קטגוריה מאושרת");
+    const payload = { ...data, category: category.name, image_url: data.image_url || null };
     if (data.id) {
-      const { error } = await supabaseAdmin.from("products").update(payload).eq("id", data.id);
+      const { error } = await (supabaseAdmin as any).from("products").update(payload).eq("id", data.id);
       if (error) throw new Error(error.message);
     } else {
-      const { error } = await supabaseAdmin.from("products").insert(payload);
+      const { error } = await (supabaseAdmin as any).from("products").insert(payload);
       if (error) throw new Error(error.message);
     }
     return { ok: true };
@@ -461,14 +502,24 @@ export const bulkImportProducts = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const payload = data.rows.map(r => ({
-      name: r.name, description: r.description ?? null,
-      price: r.price, stock: r.stock,
-      category: r.category ?? null,
-      image_url: r.image_url || null,
-      active: true,
-    }));
-    const { error } = await supabaseAdmin.from("products").insert(payload);
+    const { data: categories } = await (supabaseAdmin as any)
+      .from("item_categories").select("id, name").eq("is_active", true);
+    const byName = new Map<string, any>((categories ?? []).map((category: any) => [category.name.trim().toLowerCase(), category]));
+    const payload = data.rows.map((r) => {
+      const category = byName.get((r.category ?? "").trim().toLowerCase());
+      if (!category) throw new Error(`הקטגוריה "${r.category ?? ""}" אינה קיימת או אינה פעילה`);
+      return {
+        name: r.name, description: r.description ?? null,
+        price: r.price, stock: r.stock,
+        category: category.name,
+        category_id: category.id,
+        image_url: r.image_url || null,
+        active: true,
+        can_be_ordered: true,
+        can_be_replacement: true,
+      };
+    });
+    const { error } = await (supabaseAdmin as any).from("products").insert(payload);
     if (error) throw new Error(error.message);
     return { inserted: payload.length };
   });

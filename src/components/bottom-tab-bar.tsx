@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Home, ClipboardList, MoreHorizontal, Replace, LogOut, ShoppingCart } from "lucide-react";
+import { Home, ClipboardList, LayoutDashboard, MoreHorizontal, Replace, LogOut, ShoppingCart } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { setTeamSession } from "@/lib/team-session";
@@ -16,6 +16,7 @@ type Item = { to: string; label: string; icon: any; exact?: boolean };
 type PillTone = "normal" | "warning" | "error";
 
 const SHOP_ITEMS: Item[] = [
+  { to: "/shop/dashboard", label: "מסך רס״פ", icon: LayoutDashboard },
   { to: "/shop", label: "חנות", icon: Home, exact: true },
   { to: "/shop/replacements", label: "החלפות", icon: Replace },
   { to: "/shop/orders", label: "הזמנות", icon: ClipboardList },
@@ -203,10 +204,10 @@ export function BottomTabBar({ pin }: { pin?: string }) {
             "bg-card/90 backdrop-blur-xl border shadow-lg",
           ].join(" ")}
         >
-          {pin ? <StorePill active={isActive("/shop", true)} /> : <Tab item={SHOP_ITEMS[0]} active={isActive("/shop", true)} />}
+          <Tab item={SHOP_ITEMS[0]} active={isActive("/shop/dashboard")} />
+          {pin ? <StorePill active={isActive("/shop", true)} /> : <Tab item={SHOP_ITEMS[1]} active={isActive("/shop", true)} />}
           {pin && <CartPill pin={pin} />}
-          <Tab item={SHOP_ITEMS[1]} active={isActive("/shop/replacements")} />
-          <Tab item={SHOP_ITEMS[2]} active={isActive("/shop/orders")} />
+          <Tab item={SHOP_ITEMS[3]} active={isActive("/shop/orders")} />
           <Sheet open={open} onOpenChange={setOpen}>
             <SheetTrigger asChild>
               <button
@@ -220,6 +221,11 @@ export function BottomTabBar({ pin }: { pin?: string }) {
             <SheetContent side="bottom" className="rounded-t-2xl">
               <SheetHeader><SheetTitle>עוד</SheetTitle></SheetHeader>
               <div className="mt-4 space-y-2">
+                <Button asChild variant="outline" className="w-full justify-start h-12">
+                  <Link to="/shop/replacements" onClick={() => setOpen(false)}>
+                    <Replace className="w-4 h-4 ml-2" /> החלפות מלאי
+                  </Link>
+                </Button>
                 <InstallButton />
                 {pin && (
                   <div className="[&>button]:w-full [&>button]:justify-start [&>button]:h-12">
