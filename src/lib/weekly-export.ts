@@ -390,12 +390,13 @@ function drawMissionPlan(
   const detailSize = dense ? 5.5 : 6.8;
   const titleLineHeight = titleSize + 1.2;
   const time = mission.due_time?.slice(0, 5);
+  const missionTitle = mission.series_id ? `↻ ${mission.title}` : mission.title;
   const indicator = mission.done ? "✓" : "□";
   const statusSize = veryDense ? 5.5 : dense ? 6.3 : 7.5;
   const titleMaxLines = veryDense ? 1 : dense ? 2 : 3;
   const titleLineCount = Math.max(
     1,
-    Math.min(titleMaxLines, wrappedLines(pdf, mission.title, width - 12).length),
+    Math.min(titleMaxLines, wrappedLines(pdf, missionTitle, width - 12).length),
   );
   const detailLineHeight = detailSize + 1;
   const detailMaxLines = mission.details
@@ -422,7 +423,7 @@ function drawMissionPlan(
   const titleY = contentTop + statusSize + 4 + titleSize;
   const titleHeight = rtlTextLimited(
     pdf,
-    mission.title,
+    missionTitle,
     left + width / 2,
     titleY,
     width - 12,
@@ -513,7 +514,7 @@ function drawSignatures(pdf: Pdf, week: WeekRow) {
     rtlText(pdf, value, left + blockWidth, y + 31);
   };
 
-  signature(pageW - margin - blockWidth, "חתימת מנהל אתר אחסון:", week.author_signature_name, week.author_signed_at);
+  signature(pageW - margin - blockWidth, "חתימת נגד לוגיסטיקה:", week.author_signature_name, week.author_signed_at);
   signature(margin, "חתימת מנהל עבודה:", week.approver_signature_name, week.approver_signed_at);
 }
 
@@ -685,7 +686,7 @@ function missionParagraphs(
         })] : []),
       ],
     }),
-    rtlPara(mission.title, {
+    rtlPara(mission.series_id ? `↻ ${mission.title}` : mission.title, {
       bold: true,
       size: titleSize,
       color: mission.done ? COLORS.completed : COLORS.ink,
@@ -866,7 +867,7 @@ export function createWeeklyDOCX(
       children: [
         signatureCell("חתימת מנהל עבודה:", week.approver_signature_name, week.approver_signed_at),
         docxCell([rtlPara("")], 350),
-        signatureCell("חתימת מנהל אתר אחסון:", week.author_signature_name, week.author_signed_at),
+        signatureCell("חתימת נגד לוגיסטיקה:", week.author_signature_name, week.author_signed_at),
       ],
     })],
   });

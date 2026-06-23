@@ -1,6 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertMinRole, assertOwner as assertSystemOwner, getUserRole } from "./authz.server";
+import {
+  WORK_DAYS,
+  formatWorkDate,
+  isoWeekToWorkweekRange,
+  shiftWorkweek,
+  workdayDate,
+} from "./workweek";
 
 async function assertAdmin(ctx: { supabase: any; userId: string }) {
   return assertMinRole(ctx.userId, "ADMIN");
@@ -29,6 +36,27 @@ export type MissionRow = {
   reminder_at: string | null;
   reminder_sent_at: string | null;
   carried_from_id: string | null;
+  series_id: string | null;
+  occurrence_date: string | null;
+  original_occurrence_date: string | null;
+  is_recurrence_exception: boolean;
+  recurrence_status: "active" | "moved" | "deleted";
+  recurrence_summary?: string | null;
+  recurrence_interval_weeks?: number | null;
+  recurrence_weekdays?: number[] | null;
+  recurrence_start_date?: string | null;
+  recurrence_end_date?: string | null;
+  recurrence_occurrence_limit?: number | null;
+};
+
+export type RecurrenceInput = {
+  enabled: boolean;
+  interval_weeks: number;
+  weekdays: number[];
+  start_date: string;
+  end_type: "never" | "date" | "count";
+  end_date?: string | null;
+  occurrence_limit?: number | null;
 };
 
 export type DayNoteRow = {
@@ -55,6 +83,96 @@ export type WeekRow = {
 };
 
 export type AdminOption = { id: string; name: string; is_approver: boolean };
+
+function isoDate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function parseDate(value: string) {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function recurrenceSummary(series: any) {
+  const names = ["ראשון", "שני", "שלישי", "רביעי", "חמישי"];
+  const days = (series.weekdays ?? []).map((day: number) => names[day]).join(" ו");
+  const frequency = series.interval_weeks === 1
+    ? "כל שבוע"
+    : `כל ${series.interval_weeks} שבועות`;
+  return `${frequency} ב${days}${series.end_date ? ` עד ${formatWorkDate(parseDate(series.end_date))}` : ""}`;
+}
+
+function occurrenceOrdinal(series: any, candidate: Date) {
+  const start = parseDate(series.start_date);
+  const startSunday = new Date(start);
+  startSunday.setUTCDate(start.getUTCDate() - start.getUTCDay());
+  let count = 0;
+  for (let cursor = new Date(startSunday); cursor <= candidate; cursor.setUTCDate(cursor.getUTCDate() + 7)) {
+    const cycle = Math.round((cursor.getTime() - startSunday.getTime()) / 604_800_000);
+    if (cycle % series.interval_weeks !== 0) continue;
+    for (const day of series.weekdays as number[]) {
+      const date = new Date(cursor);
+      date.setUTCDate(cursor.getUTCDate() + day);
+      if (date < start || date > candidate) continue;
+      count += 1;
+    }
+  }
+  return count;
+}
+
+async function materializeRecurringMissions(
+  ownerUserId: string,
+  weekRow: any,
+  year: number,
+  week: number,
+) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: seriesRows, error } = await (supabaseAdmin as any)
+    .from("recurring_mission_series")
+    .select("*")
+    .eq("owner_user_id", ownerUserId)
+    .eq("is_active", true);
+  if (error) {
+    // Backward-compatible while the migration is being applied.
+    if (error.code === "42P01" || error.code === "42703") return;
+    throw new Error(error.message);
+  }
+  const range = isoWeekToWorkweekRange(year, week);
+  const inserts: any[] = [];
+  for (const series of seriesRows ?? []) {
+    const start = parseDate(series.start_date);
+    const startSunday = new Date(start);
+    startSunday.setUTCDate(start.getUTCDate() - start.getUTCDay());
+    const weekOffset = Math.round((range.start.getTime() - startSunday.getTime()) / 604_800_000);
+    if (weekOffset < 0 || weekOffset % series.interval_weeks !== 0) continue;
+    for (const day of series.weekdays as number[]) {
+      assertWorkday(day);
+      const occurrence = workdayDate(range, day as any);
+      const occurrenceDate = isoDate(occurrence);
+      if (occurrence < start) continue;
+      if (series.end_date && occurrenceDate > series.end_date) continue;
+      if (series.occurrence_limit && occurrenceOrdinal(series, occurrence) > series.occurrence_limit) continue;
+      inserts.push({
+        week_id: weekRow.id,
+        day_of_week: day,
+        position: 0,
+        title: series.title,
+        details: series.details,
+        due_time: series.due_time,
+        done: false,
+        series_id: series.id,
+        occurrence_date: occurrenceDate,
+        original_occurrence_date: occurrenceDate,
+        recurrence_status: "active",
+      });
+    }
+  }
+  if (inserts.length) {
+    const { error: insertError } = await (supabaseAdmin as any)
+      .from("missions")
+      .upsert(inserts, { onConflict: "series_id,original_occurrence_date", ignoreDuplicates: true });
+    if (insertError) throw new Error(insertError.message);
+  }
+}
 
 export const listCalendarAdmins = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -138,8 +256,11 @@ export const getMissionWeek = createServerFn({ method: "POST" })
       weekRow = ins.data;
     }
 
+    await materializeRecurringMissions(owner, weekRow, data.year, data.week);
+
     const [{ data: missions, error: mErr }, { data: notes, error: nErr }] = await Promise.all([
-      supabase.from("missions").select("*").eq("week_id", weekRow.id)
+      (supabase as any).from("missions").select("*").eq("week_id", weekRow.id)
+        .neq("recurrence_status", "deleted")
         .order("day_of_week", { ascending: true })
         .order("position", { ascending: true })
         .order("created_at", { ascending: true }),
@@ -148,9 +269,29 @@ export const getMissionWeek = createServerFn({ method: "POST" })
     if (mErr) throw new Error(mErr.message);
     if (nErr) throw new Error(nErr.message);
 
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const seriesIds = [...new Set((missions ?? []).map((m: any) => m.series_id).filter(Boolean))];
+    const seriesById = new Map<string, any>();
+    if (seriesIds.length) {
+      const { data: seriesRows } = await (supabaseAdmin as any)
+        .from("recurring_mission_series").select("*").in("id", seriesIds);
+      for (const series of seriesRows ?? []) seriesById.set(series.id, series);
+    }
+    const missionRows = (missions ?? []).map((mission: any) => ({
+      ...mission,
+      recurrence_summary: mission.series_id && seriesById.has(mission.series_id)
+        ? recurrenceSummary(seriesById.get(mission.series_id))
+        : null,
+      recurrence_interval_weeks: seriesById.get(mission.series_id)?.interval_weeks ?? null,
+      recurrence_weekdays: seriesById.get(mission.series_id)?.weekdays ?? null,
+      recurrence_start_date: seriesById.get(mission.series_id)?.start_date ?? null,
+      recurrence_end_date: seriesById.get(mission.series_id)?.end_date ?? null,
+      recurrence_occurrence_limit: seriesById.get(mission.series_id)?.occurrence_limit ?? null,
+    }));
+
     return {
       week: weekRow as WeekRow,
-      missions: (missions ?? []) as MissionRow[],
+      missions: missionRows as MissionRow[],
       day_notes: (notes ?? []) as DayNoteRow[],
       can_edit: isOwner && !weekRow.locked && !weekRow.author_signed_at,
       can_sign_author: isOwner && !weekRow.author_signed_at,
@@ -176,25 +317,107 @@ export const upsertMission = createServerFn({ method: "POST" })
     id?: string; week_id: string; day_of_week: number;
     title: string; details?: string | null;
     due_time?: string | null; reminder_at?: string | null;
+    recurrence?: RecurrenceInput | null;
+    recurrence_scope?: "this" | "future" | "all";
   }) => d)
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
     const { supabase } = context;
-    await assertOwner(context, data.week_id);
+    const calendarWeek = await assertOwner(context, data.week_id);
     assertWorkday(data.day_of_week);
+    if (data.recurrence?.enabled) {
+      const interval = Number(data.recurrence.interval_weeks);
+      if (!Number.isInteger(interval) || interval < 1 || interval > 52) {
+        throw new Error("מרווח החזרה חייב להיות בין 1 ל-52 שבועות");
+      }
+      const weekdays = [...new Set(data.recurrence.weekdays)];
+      if (!weekdays.length) throw new Error("יש לבחור לפחות יום חזרה אחד");
+      weekdays.forEach(assertWorkday);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(data.recurrence.start_date)) {
+        throw new Error("תאריך ההתחלה אינו תקין");
+      }
+      if (
+        data.recurrence.end_type === "date"
+        && (!data.recurrence.end_date || data.recurrence.end_date < data.recurrence.start_date)
+      ) {
+        throw new Error("תאריך הסיום חייב להיות אחרי תאריך ההתחלה");
+      }
+      if (
+        data.recurrence.end_type === "count"
+        && (!Number.isInteger(data.recurrence.occurrence_limit)
+          || Number(data.recurrence.occurrence_limit) < 1
+          || Number(data.recurrence.occurrence_limit) > 1000)
+      ) {
+        throw new Error("מספר המופעים חייב להיות בין 1 ל-1000");
+      }
+    }
 
-    const patch = {
+    const occurrenceDate = isoDate(workdayDate(
+      isoWeekToWorkweekRange(calendarWeek.year, calendarWeek.week),
+      data.day_of_week as any,
+    ));
+    const patch: any = {
       title: data.title,
       details: data.details ?? null,
       day_of_week: data.day_of_week,
       due_time: data.due_time ?? null,
       reminder_at: data.reminder_at ?? null,
+      occurrence_date: occurrenceDate,
     };
 
     if (data.id) {
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      const { data: current } = await (supabaseAdmin as any)
+        .from("missions").select("*").eq("id", data.id).single();
+      if (current?.series_id && data.recurrence_scope && data.recurrence_scope !== "this") {
+        await (supabaseAdmin as any).from("recurring_mission_series").update({
+          title: patch.title,
+          details: patch.details,
+          due_time: patch.due_time,
+          ...(data.recurrence ? {
+            interval_weeks: data.recurrence.interval_weeks,
+            weekdays: data.recurrence.weekdays,
+            start_date: data.recurrence.start_date,
+            end_date: data.recurrence.end_type === "date" ? data.recurrence.end_date : null,
+            occurrence_limit: data.recurrence.end_type === "count" ? data.recurrence.occurrence_limit : null,
+          } : {}),
+        }).eq("id", current.series_id).eq("owner_user_id", context.userId);
+        let futureQuery = (supabaseAdmin as any).from("missions").update({
+          title: patch.title, details: patch.details, due_time: patch.due_time,
+        }).eq("series_id", current.series_id);
+        if (data.recurrence_scope === "future") {
+          futureQuery = futureQuery.gte("original_occurrence_date", current.original_occurrence_date);
+        }
+        await futureQuery;
+      }
+      if (current?.series_id && data.recurrence_scope === "this") {
+        patch.is_recurrence_exception = true;
+      }
       const { error } = await supabase.from("missions").update(patch).eq("id", data.id);
       if (error) throw new Error(error.message);
       return { ok: true };
+    }
+
+    if (data.recurrence?.enabled) {
+      const interval = Number(data.recurrence.interval_weeks);
+      const weekdays = [...new Set(data.recurrence.weekdays)];
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      const { data: series, error: seriesError } = await (supabaseAdmin as any)
+        .from("recurring_mission_series")
+        .insert({
+          owner_user_id: context.userId,
+          title: patch.title,
+          details: patch.details,
+          due_time: patch.due_time,
+          interval_weeks: interval,
+          weekdays,
+          start_date: data.recurrence.start_date,
+          end_date: data.recurrence.end_type === "date" ? data.recurrence.end_date : null,
+          occurrence_limit: data.recurrence.end_type === "count" ? data.recurrence.occurrence_limit : null,
+        }).select("*").single();
+      if (seriesError) throw new Error(seriesError.message);
+      patch.series_id = series.id;
+      patch.original_occurrence_date = occurrenceDate;
     }
     const { data: existing } = await supabase
       .from("missions").select("position")
@@ -210,14 +433,34 @@ export const upsertMission = createServerFn({ method: "POST" })
 
 export const deleteMission = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { id: string }) => d)
+  .inputValidator((d: { id: string; recurrence_scope?: "this" | "future" | "all" }) => d)
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
     const { supabase } = context;
-    const { data: row } = await supabase.from("missions").select("week_id").eq("id", data.id).maybeSingle();
+    const { data: row }: { data: any } = await (supabase as any)
+      .from("missions").select("*").eq("id", data.id).maybeSingle();
     if (!row) return { ok: true };
     await assertOwner(context, row.week_id);
-    const { error } = await supabase.from("missions").delete().eq("id", data.id);
+    if (row.series_id && data.recurrence_scope && data.recurrence_scope !== "this") {
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      if (data.recurrence_scope === "all") {
+        await (supabaseAdmin as any).from("recurring_mission_series")
+          .update({ is_active: false }).eq("id", row.series_id).eq("owner_user_id", context.userId);
+        await (supabaseAdmin as any).from("missions").update({ recurrence_status: "deleted" })
+          .eq("series_id", row.series_id).eq("done", false);
+      } else {
+        const previousDate = new Date(`${row.original_occurrence_date}T00:00:00.000Z`);
+        previousDate.setUTCDate(previousDate.getUTCDate() - 1);
+        await (supabaseAdmin as any).from("recurring_mission_series")
+          .update({ end_date: isoDate(previousDate) }).eq("id", row.series_id).eq("owner_user_id", context.userId);
+        await (supabaseAdmin as any).from("missions").update({ recurrence_status: "deleted" })
+          .eq("series_id", row.series_id).gte("original_occurrence_date", row.original_occurrence_date).eq("done", false);
+      }
+      return { ok: true };
+    }
+    const { error } = row.series_id
+      ? await (supabase as any).from("missions").update({ recurrence_status: "deleted" }).eq("id", data.id)
+      : await supabase.from("missions").delete().eq("id", data.id);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -279,7 +522,7 @@ export const signMissionWeek = createServerFn({ method: "POST" })
 
     const patch: any = {};
     if (data.role === "author") {
-      if (w.owner_user_id !== userId) throw new Error("רק בעל הלוח חותם כרכז");
+      if (w.owner_user_id !== userId) throw new Error("רק בעל הלוח חותם כנגד לוגיסטיקה");
       patch.author_signed_at = new Date().toISOString();
       patch.author_signature_name = name;
     } else {
@@ -342,66 +585,92 @@ export const reopenMissionWeek = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-// ----- Carry unfinished missions to next ISO week -----
-function nextIsoWeek(year: number, week: number): { year: number; week: number } {
-  // Last ISO week of a year is 52 or 53. Use Date math to be safe.
-  const simple = new Date(Date.UTC(year, 0, 4));
-  const dayOfWeek = simple.getUTCDay() || 7;
-  const isoMon = new Date(simple);
-  isoMon.setUTCDate(simple.getUTCDate() - (dayOfWeek - 1) + (week - 1) * 7);
-  const nextMon = new Date(isoMon);
-  nextMon.setUTCDate(isoMon.getUTCDate() + 7);
-  const d = new Date(Date.UTC(nextMon.getUTCFullYear(), nextMon.getUTCMonth(), nextMon.getUTCDate()));
-  const dn = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - dn);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  const wk = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-  return { year: d.getUTCFullYear(), week: wk };
-}
+export type MissionMoveAssignment = {
+  mission_id: string;
+  destination_day: number;
+  destination_date: string;
+  due_time?: string | null;
+  recurrence_scope?: "occurrence" | "future";
+  conflict_resolution?: "keep_both" | "replace";
+};
 
-export const carryUnfinishedToNextWeek = createServerFn({ method: "POST" })
+export const moveSelectedMissionsToNextWeek = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { week_id: string }) => d)
+  .inputValidator((d: {
+    week_id: string;
+    request_token: string;
+    assignments: MissionMoveAssignment[];
+  }) => d)
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
-    const { supabase, userId } = context;
-    const w = await assertOwner(context, data.week_id);
+    const { userId } = context;
+    const sourceWeek = await assertOwner(context, data.week_id);
+    if (!data.assignments.length) throw new Error("יש לבחור לפחות משימה אחת");
+    data.assignments.forEach((assignment) => assertWorkday(assignment.destination_day));
 
-    const { data: unfinished, error: uErr } = await supabase
-      .from("missions").select("*").eq("week_id", data.week_id).eq("done", false);
-    if (uErr) throw new Error(uErr.message);
-    if (!unfinished || !unfinished.length) return { ok: true, moved: 0 };
-
-    const next = nextIsoWeek(w.year, w.week);
-
-    // Find or create next week's row for this owner.
-    let { data: nextWeek } = await supabase
+    const target = shiftWorkweek(sourceWeek.year, sourceWeek.week, 1);
+    const targetRange = isoWeekToWorkweekRange(target.year, target.week);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    let { data: targetWeek } = await (supabaseAdmin as any)
       .from("mission_weeks").select("*")
-      .eq("year", next.year).eq("week", next.week).eq("owner_user_id", userId)
+      .eq("year", target.year).eq("week", target.week).eq("owner_user_id", userId)
       .maybeSingle();
-    if (!nextWeek) {
-      const { data: prof } = await supabase.from("profiles").select("display_name").eq("id", userId).maybeSingle();
-      const ins = await supabase.from("mission_weeks").insert({
-        year: next.year, week: next.week, owner_user_id: userId,
-        created_by: userId, created_by_name: prof?.display_name ?? null,
+    if (!targetWeek) {
+      const { data: profile } = await (supabaseAdmin as any)
+        .from("profiles").select("display_name").eq("id", userId).maybeSingle();
+      const created = await (supabaseAdmin as any).from("mission_weeks").insert({
+        year: target.year,
+        week: target.week,
+        owner_user_id: userId,
+        created_by: userId,
+        created_by_name: profile?.display_name ?? null,
       }).select("*").single();
-      if (ins.error) throw new Error(ins.error.message);
-      nextWeek = ins.data;
+      if (created.error) throw new Error(created.error.message);
+      targetWeek = created.data;
     }
-    if (nextWeek.locked) throw new Error("שבוע היעד נעול");
+    if (targetWeek.locked || targetWeek.author_signed_at) throw new Error("שבוע היעד חתום או נעול");
 
-    const inserts = (unfinished as any[]).map((m, i) => ({
-      week_id: nextWeek!.id,
-      day_of_week: 0, // start of next week
-      position: i,
-      title: m.title,
-      details: m.details,
-      due_time: m.due_time,
-      reminder_at: null,
-      carried_from_id: m.id,
-    }));
+    const normalized = data.assignments.map((assignment) => {
+      const expectedDate = isoDate(workdayDate(targetRange, assignment.destination_day as any));
+      if (assignment.destination_date !== expectedDate) {
+        throw new Error("תאריך היעד אינו תואם ליום שנבחר");
+      }
+      return assignment;
+    });
+    const { data: priorMoves } = await (supabaseAdmin as any)
+      .from("mission_move_history")
+      .select("mission_id")
+      .eq("request_token", data.request_token)
+      .eq("owner_user_id", userId);
+    if ((priorMoves ?? []).length === normalized.length) {
+      return {
+        ok: true,
+        moved: normalized.length,
+        target,
+        target_week_id: targetWeek.id,
+      };
+    }
+    const ids = normalized.map((assignment) => assignment.mission_id);
+    const selected = await (supabaseAdmin as any).from("missions").select("*")
+      .in("id", ids).eq("week_id", data.week_id).eq("done", false)
+      .neq("recurrence_status", "deleted");
+    if (selected.error) throw new Error(selected.error.message);
+    if ((selected.data ?? []).length !== ids.length) {
+      throw new Error("אחת המשימות כבר הועברה, הושלמה או אינה זמינה");
+    }
 
-    const { error: insErr } = await supabase.from("missions").insert(inserts);
-    if (insErr) throw new Error(insErr.message);
-    return { ok: true, moved: inserts.length, target: next };
+    const result = await (supabaseAdmin as any).rpc("move_selected_missions", {
+      p_source_week_id: data.week_id,
+      p_destination_week_id: targetWeek.id,
+      p_actor: userId,
+      p_request_token: data.request_token,
+      p_assignments: normalized,
+    });
+    if (result.error) throw new Error(result.error.message);
+    return {
+      ok: true,
+      moved: result.data?.moved ?? normalized.length,
+      target,
+      target_week_id: targetWeek.id,
+    };
   });
