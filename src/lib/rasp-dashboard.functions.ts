@@ -5,7 +5,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 const dateFilterSchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  category_id: z.string().uuid().optional().nullable(),
+  replacement_category: z.string().trim().max(100).optional().nullable(),
 });
 
 async function requireTeam(userId: string) {
@@ -64,8 +64,7 @@ export const getRaspDashboard = createServerFn({ method: "POST" })
       previousYearResult,
       previousMonthResult,
       replacementResult,
-      categoriesResult,
-      productsResult,
+      replacementProductsResult,
       budgetPeriodResult,
       catalogRequestsResult,
     ] = await Promise.all([
@@ -84,13 +83,11 @@ export const getRaspDashboard = createServerFn({ method: "POST" })
         .lte("created_at", previousMonthEnd.toISOString()),
       (supabaseAdmin as any)
         .from("team_replacement_items")
-        .select("*, products(id, name, item_code, image_url, category_id, item_categories(id, name, color))")
+        .select("*, replacement_products(id, name, description, category, image_url, active, takin_stock)")
         .eq("team_id", teamId).order("created_at", { ascending: false }),
-      (supabaseAdmin as any).from("item_categories").select("*")
-        .eq("is_active", true).order("display_order").order("name"),
-      (supabaseAdmin as any).from("products")
-        .select("id, name, item_code, category_id, price, stock, image_url, unit_of_measure, maximum_quantity, can_be_replacement, item_categories(id, name, color)")
-        .eq("active", true).eq("can_be_replacement", true).order("name"),
+      (supabaseAdmin as any).from("replacement_products")
+        .select("id, name, description, category, image_url, active, takin_stock, balai_stock")
+        .eq("active", true).order("category").order("name"),
       (supabaseAdmin as any).from("budget_periods")
         .select("id, starting_budget, carry_over_amount, used_amount, remaining_amount, starts_at, ends_at")
         .eq("team_id", teamId).eq("status", "active").maybeSingle(),
@@ -100,7 +97,7 @@ export const getRaspDashboard = createServerFn({ method: "POST" })
 
     for (const result of [
       ordersResult, previousYearResult, previousMonthResult, replacementResult,
-      categoriesResult, productsResult, budgetPeriodResult, catalogRequestsResult,
+      replacementProductsResult, budgetPeriodResult, catalogRequestsResult,
     ]) {
       if (result.error && !["42P01", "42703"].includes(result.error.code)) {
         throw new Error(result.error.message);
