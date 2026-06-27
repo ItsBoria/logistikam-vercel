@@ -54,14 +54,14 @@ function Admins() {
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<"admin" | "staff">("admin");
+  const [role, setRole] = useState<"WORK_MANAGER" | "ADMIN">("ADMIN");
 
 
   async function create() {
     try {
       await createFn({ data: { email, username, password, role } });
       toast.success("המשתמש נוסף");
-      setEmail(""); setUsername(""); setPassword(""); setRole("admin"); setCreating(false);
+      setEmail(""); setUsername(""); setPassword(""); setRole("ADMIN"); setCreating(false);
       qc.invalidateQueries({ queryKey: ["admin-users"] });
       qc.invalidateQueries({ queryKey: ["registered-users"] });
     } catch (e: any) { toast.error(e.message); }
@@ -75,7 +75,7 @@ function Admins() {
       qc.invalidateQueries({ queryKey: ["registered-users"] });
     } catch (e: any) { toast.error(e.message); }
   }
-  async function changeRole(id: string, newRole: "admin" | "staff" | "customer") {
+  async function changeRole(id: string, newRole: "WORK_MANAGER" | "ADMIN" | "USER") {
     try {
       await roleFn({ data: { user_id: id, role: newRole } });
       toast.success("התפקיד עודכן");
@@ -149,12 +149,12 @@ function Admins() {
                       </label>
                     )}
                     {!isMe && (
-                      <Select value={isAdmin ? "admin" : "staff"} onValueChange={(v) => changeRole(a.user_id, v as any)}>
+                      <Select value={a.current_role ?? "ADMIN"} onValueChange={(v) => changeRole(a.user_id, v as any)}>
                         <SelectTrigger className="w-36 h-9 text-xs"><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="admin">מנהל</SelectItem>
-                          <SelectItem value="staff">צוות מחסן</SelectItem>
-                          <SelectItem value="customer">לקוח (הסר)</SelectItem>
+                          <SelectItem value="WORK_MANAGER">מנהל עבודה</SelectItem>
+                          <SelectItem value="ADMIN">נגד לוגיסטיקה</SelectItem>
+                          <SelectItem value="USER">משתמש</SelectItem>
                         </SelectContent>
                       </Select>
                     )}
@@ -184,11 +184,9 @@ function Admins() {
             {searchResults?.map((u: any) => {
               const isMe = u.id === session?.user.id;
               const initials = (u.displayName || u.email || "?").trim().charAt(0).toUpperCase();
-              const roleLabel = u.currentRole === "admin" ? "מנהל" : u.currentRole === "staff" ? "צוות" : "לקוח";
-              const roleClass = u.currentRole === "admin"
+              const roleLabel = u.currentRole === "OWNER" ? "בעלים" : u.currentRole === "WORK_MANAGER" ? "מנהל עבודה" : u.currentRole === "ADMIN" ? "נגד לוגיסטיקה" : "משתמש";
+              const roleClass = u.currentRole !== "USER"
                 ? "bg-primary/15 text-primary"
-                : u.currentRole === "staff"
-                ? "bg-secondary text-secondary-foreground"
                 : "bg-muted text-foreground";
               return (
                 <div key={u.id} className="flex items-center justify-between p-4 gap-3 flex-wrap">
@@ -224,9 +222,9 @@ function Admins() {
                       <Select value={u.currentRole} onValueChange={(v) => changeRole(u.id, v as any)}>
                         <SelectTrigger className="w-36 h-9 text-xs"><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="admin">מנהל</SelectItem>
-                          <SelectItem value="staff">צוות מחסן</SelectItem>
-                          <SelectItem value="customer">לקוח</SelectItem>
+                          <SelectItem value="WORK_MANAGER">מנהל עבודה</SelectItem>
+                          <SelectItem value="ADMIN">נגד לוגיסטיקה</SelectItem>
+                          <SelectItem value="USER">משתמש</SelectItem>
                         </SelectContent>
                       </Select>
                     ) : <span className="text-xs text-muted-foreground">(אתה)</span>}
@@ -250,8 +248,8 @@ function Admins() {
               <Select value={role} onValueChange={(v) => setRole(v as any)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="admin">מנהל (גישה מלאה)</SelectItem>
-                  <SelectItem value="staff">צוות מחסן (מלאי + סטטוס הזמנות בלבד)</SelectItem>
+                  <SelectItem value="WORK_MANAGER">מנהל עבודה</SelectItem>
+                  <SelectItem value="ADMIN">נגד לוגיסטיקה</SelectItem>
                 </SelectContent>
               </Select>
             </div>

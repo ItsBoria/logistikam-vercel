@@ -4,9 +4,15 @@ import { getMyAdminRoles } from "@/lib/admin-notifications.functions";
 import { useSupabaseSession } from "@/hooks/use-supabase-session";
 
 export type AdminRolesData = {
-  roles: ("admin" | "staff")[];
+  roles: ("OWNER" | "WORK_MANAGER" | "ADMIN")[];
+  role: "OWNER" | "WORK_MANAGER" | "ADMIN" | "USER";
+  isOwner: boolean;
+  isWorkManager: boolean;
   isAdmin: boolean;
   isStaff: boolean;
+  canManageRoles: boolean;
+  canResetBudgets: boolean;
+  canSignCalendar: boolean;
   hasAccess: boolean;
 };
 

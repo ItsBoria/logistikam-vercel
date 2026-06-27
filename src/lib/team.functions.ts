@@ -43,18 +43,43 @@ export const getShopData = createServerFn({ method: "POST" })
       .from("teams").select("id, name, monthly_limit, contact_phone")
       .eq("pin", data.pin.trim()).eq("active", true).maybeSingle();
     if (!team) throw new Error("צוות לא תקין");
-    const [{ data: products }, { data: spent }] = await Promise.all([
-      supabaseAdmin.from("products").select("*").eq("active", true).order("name"),
+    const [{ data: products }, { data: spent }, { data: period }] = await Promise.all([
+      (supabaseAdmin as any).from("products")
+        .select("*, item_categories(id, name, code, color, is_active)")
+        .eq("active", true).eq("can_be_ordered", true)
+        .eq("item_categories.is_active", true).order("name"),
       supabaseAdmin.rpc("team_month_spent", { _team_id: team.id }),
+      (supabaseAdmin as any).from("budget_periods")
+        .select("id, policy_id, starting_budget, carry_over_amount, starts_at, ends_at")
+        .eq("team_id", team.id).eq("status", "active").maybeSingle(),
     ]);
+    const { data: policy } = period?.policy_id
+      ? await (supabaseAdmin as any).from("budget_policies")
+          .select("reset_mode, next_reset_at, timezone, carry_over_mode")
+          .eq("id", period.policy_id).maybeSingle()
+      : { data: null };
+    const allocatedBudget = period
+      ? Number(period.starting_budget) + Number(period.carry_over_amount)
+      : Number(team.monthly_limit);
     const resolved = await resolveProductImages(supabaseAdmin, products ?? []);
     return {
-      team,
+      team: { ...team, monthly_limit: allocatedBudget },
       products: resolved.map((product) => ({
         ...product,
+        category: product.item_categories?.name ?? product.category,
         price: addVat(Number(product.price)),
       })),
       spent: Number(spent ?? 0),
+      budget: {
+        period_id: period?.id ?? null,
+        allocated: allocatedBudget,
+        starts_at: period?.starts_at ?? null,
+        ends_at: period?.ends_at ?? null,
+        reset_mode: policy?.reset_mode ?? "monthly",
+        next_reset_at: policy?.next_reset_at ?? null,
+        timezone: policy?.timezone ?? "Asia/Jerusalem",
+        carry_over_mode: policy?.carry_over_mode ?? "none",
+      },
     };
   });
 
@@ -81,26 +106,42 @@ export const placeOrder = createServerFn({ method: "POST" })
     if (!team || !team.active) throw new Error("צוות לא תקין");
 
     const ids = data.items.map(i => i.product_id);
-    const { data: products } = await supabaseAdmin
-      .from("products").select("id, name, price, stock, active").in("id", ids);
+    const { data: products } = await (supabaseAdmin as any)
+      .from("products")
+      .select("id, name, price, stock, active, category_id, can_be_ordered, maximum_quantity, item_categories(is_active)")
+      .in("id", ids);
     if (!products || products.length !== ids.length) throw new Error("חלק מהמוצרים לא נמצאו");
 
     let total = 0;
     const orderItems = data.items.map(i => {
-      const p = products.find(x => x.id === i.product_id)!;
-      if (!p.active) throw new Error(`המוצר ${p.name} אינו זמין`);
+      const p = products.find((x: any) => x.id === i.product_id)!;
+      if (!p.active || !p.can_be_ordered || !p.item_categories?.is_active) {
+        throw new Error(`המוצר ${p.name} אינו מאושר להזמנה`);
+      }
+      if (p.maximum_quantity && i.quantity > p.maximum_quantity) {
+        throw new Error(`הכמות המרבית עבור ${p.name} היא ${p.maximum_quantity}`);
+      }
       if (p.stock < i.quantity) throw new Error(`אין מספיק מלאי עבור ${p.name}`);
       const priceWithVat = addVat(Number(p.price));
       total += priceWithVat * i.quantity;
-      return { product_id: p.id, name: p.name, price: priceWithVat, quantity: i.quantity };
+      return {
+        product_id: p.id,
+        category_id: p.category_id,
+        name: p.name,
+        price: priceWithVat,
+        quantity: i.quantity,
+      };
     });
 
     const { data: spentResp } = await supabaseAdmin.rpc("team_month_spent", { _team_id: team.id });
     const spent = Number(spentResp ?? 0);
     const limit = Number(team.monthly_limit);
 
-    const requiresApproval = limit > 0 && spent + total > limit;
-    const status = requiresApproval ? "awaiting_approval" : "pending";
+    if (limit > 0 && spent + total > limit) {
+      const exceededBy = spent + total - limit;
+      throw new Error(`ההזמנה חורגת מהתקציב ב-₪${Math.ceil(exceededBy).toLocaleString("he-IL")}`);
+    }
+    const status = "pending";
 
     const { data: order, error: orderErr } = await supabaseAdmin
       .from("orders")
@@ -116,14 +157,13 @@ export const placeOrder = createServerFn({ method: "POST" })
       .single();
     if (orderErr || !order) throw new Error(orderErr?.message || "שגיאה ביצירת הזמנה");
 
-    const { error: itemsErr } = await supabaseAdmin
+    const { error: itemsErr } = await (supabaseAdmin as any)
       .from("order_items")
       .insert(orderItems.map(it => ({ ...it, order_id: order.id })));
     if (itemsErr) throw new Error(itemsErr.message);
 
-    if (!requiresApproval) {
-      for (const it of orderItems) {
-        const p = products.find(x => x.id === it.product_id)!;
+    for (const it of orderItems) {
+        const p = products.find((x: any) => x.id === it.product_id)!;
         const newStock = p.stock - it.quantity;
         await supabaseAdmin.from("products").update({ stock: newStock }).eq("id", p.id);
         // Low-stock admin notification if this deduction crossed the threshold.
@@ -147,7 +187,6 @@ export const placeOrder = createServerFn({ method: "POST" })
         } catch (e: any) {
           console.warn("[low stock notify on order] failed:", e?.message);
         }
-      }
     }
 
     // Notify admins about the new order (best-effort, async).
@@ -155,19 +194,11 @@ export const placeOrder = createServerFn({ method: "POST" })
       const { sendPushToAdmins } = await import("./admin-push.server");
       const itemsLine = orderItems.map((i) => `${i.name}×${i.quantity}`).join(", ");
       const trimmed = itemsLine.length > 120 ? itemsLine.slice(0, 117) + "..." : itemsLine;
-      if (requiresApproval) {
-        await sendPushToAdmins("order_awaiting_approval", {
-          title: "הזמנה ממתינה לאישור",
-          body: `${data.ordered_by_name}: ₪${total.toFixed(0)} — ${trimmed}`,
-          url: "/admin/orders",
-        });
-      } else {
-        await sendPushToAdmins("order_created", {
-          title: "הזמנה חדשה",
-          body: `${data.ordered_by_name}: ₪${total.toFixed(0)} — ${trimmed}`,
-          url: "/admin/orders",
-        });
-      }
+      await sendPushToAdmins("order_created", {
+        title: "הזמנה חדשה",
+        body: `${data.ordered_by_name}: ₪${total.toFixed(0)} — ${trimmed}`,
+        url: "/admin/orders",
+      });
     } catch (e: any) {
       console.warn("[admin notify new order] failed:", e?.message);
     }
@@ -202,7 +233,7 @@ export const placeOrder = createServerFn({ method: "POST" })
       }
     }
 
-    return { order_id: order.id, status, requires_approval: requiresApproval, total };
+    return { order_id: order.id, status, requires_approval: false, total };
   });
 
 // Build a cart suggestion from a previous order — returns available items + a list of skipped ones.
@@ -337,18 +368,32 @@ export const editOrder = createServerFn({ method: "POST" })
     }
 
     const ids = data.items.map((i) => i.product_id);
-    const { data: products } = await supabaseAdmin
-      .from("products").select("id, name, price, stock, active").in("id", ids);
+    const { data: products } = await (supabaseAdmin as any)
+      .from("products")
+      .select("id, name, price, stock, active, category_id, can_be_ordered, maximum_quantity, item_categories(is_active)")
+      .in("id", ids);
     if (!products || products.length !== ids.length) throw new Error("חלק מהמוצרים לא נמצאו");
 
     let total = 0;
     const newItems = data.items.map((i) => {
       const p = products.find((x: any) => x.id === i.product_id)!;
-      if (!p.active) throw new Error(`המוצר ${p.name} אינו זמין`);
+      if (!p.active || !p.can_be_ordered || !p.item_categories?.is_active) {
+        throw new Error(`המוצר ${p.name} אינו מאושר להזמנה`);
+      }
+      if (p.maximum_quantity && i.quantity > p.maximum_quantity) {
+        throw new Error(`הכמות המרבית עבור ${p.name} היא ${p.maximum_quantity}`);
+      }
       if (Number(p.stock) < i.quantity) throw new Error(`אין מספיק מלאי עבור ${p.name}`);
       const priceWithVat = addVat(Number(p.price));
       total += priceWithVat * i.quantity;
-      return { order_id: order.id, product_id: p.id, name: p.name, price: priceWithVat, quantity: i.quantity };
+      return {
+        order_id: order.id,
+        product_id: p.id,
+        category_id: p.category_id,
+        name: p.name,
+        price: priceWithVat,
+        quantity: i.quantity,
+      };
     });
 
     // Recompute status against monthly limit, excluding this order's current total
@@ -360,7 +405,7 @@ export const editOrder = createServerFn({ method: "POST" })
 
     // Replace items
     await supabaseAdmin.from("order_items").delete().eq("order_id", order.id);
-    const { error: insErr } = await supabaseAdmin.from("order_items").insert(newItems);
+    const { error: insErr } = await (supabaseAdmin as any).from("order_items").insert(newItems);
     if (insErr) throw new Error(insErr.message);
 
     // Update order

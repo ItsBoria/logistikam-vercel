@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
+import { assertMinRole } from "./authz.server";
 
 const BUCKET = "product-images";
 const SIGN_TTL = 60 * 60 * 24 * 7;
@@ -16,10 +17,7 @@ async function resolveImage(supabaseAdmin: any, url: string | null | undefined):
 }
 
 async function assertAdmin(userId: string) {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data } = await supabaseAdmin
-    .from("user_roles").select("id").eq("user_id", userId).eq("role", "admin").maybeSingle();
-  if (!data) throw new Error("גישה לאדמין בלבד");
+  return assertMinRole(userId, "ADMIN");
 }
 
 // ---- Replacement products (admin inventory) ----

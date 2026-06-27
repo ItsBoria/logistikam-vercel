@@ -15,16 +15,20 @@ import { Route as ShopIndexRouteImport } from './routes/shop.index'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as ShopReplacementsRouteImport } from './routes/shop.replacements'
 import { Route as ShopOrdersRouteImport } from './routes/shop.orders'
+import { Route as ShopDashboardRouteImport } from './routes/shop.dashboard'
 import { Route as AdminUsersRouteImport } from './routes/admin.users'
 import { Route as AdminTeamsRouteImport } from './routes/admin.teams'
 import { Route as AdminStockRouteImport } from './routes/admin.stock'
 import { Route as AdminReplacementsRouteImport } from './routes/admin.replacements'
 import { Route as AdminReplacementInventoryRouteImport } from './routes/admin.replacement-inventory'
 import { Route as AdminProductsRouteImport } from './routes/admin.products'
+import { Route as AdminPreferencesRouteImport } from './routes/admin.preferences'
 import { Route as AdminOrdersRouteImport } from './routes/admin.orders'
 import { Route as AdminNotificationsRouteImport } from './routes/admin.notifications'
 import { Route as AdminLoginRouteImport } from './routes/admin.login'
 import { Route as AdminCalendarRouteImport } from './routes/admin.calendar'
+import { Route as AdminBudgetsRouteImport } from './routes/admin.budgets'
+import { Route as AdminAuditRouteImport } from './routes/admin.audit'
 
 const SelectTeamRoute = SelectTeamRouteImport.update({
   id: '/select-team',
@@ -54,6 +58,11 @@ const ShopReplacementsRoute = ShopReplacementsRouteImport.update({
 const ShopOrdersRoute = ShopOrdersRouteImport.update({
   id: '/shop/orders',
   path: '/shop/orders',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ShopDashboardRoute = ShopDashboardRouteImport.update({
+  id: '/shop/dashboard',
+  path: '/shop/dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminUsersRoute = AdminUsersRouteImport.update({
@@ -87,6 +96,11 @@ const AdminProductsRoute = AdminProductsRouteImport.update({
   path: '/admin/products',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminPreferencesRoute = AdminPreferencesRouteImport.update({
+  id: '/admin/preferences',
+  path: '/admin/preferences',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminOrdersRoute = AdminOrdersRouteImport.update({
   id: '/admin/orders',
   path: '/admin/orders',
@@ -107,20 +121,34 @@ const AdminCalendarRoute = AdminCalendarRouteImport.update({
   path: '/admin/calendar',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminBudgetsRoute = AdminBudgetsRouteImport.update({
+  id: '/admin/budgets',
+  path: '/admin/budgets',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminAuditRoute = AdminAuditRouteImport.update({
+  id: '/admin/audit',
+  path: '/admin/audit',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/select-team': typeof SelectTeamRoute
+  '/admin/audit': typeof AdminAuditRoute
+  '/admin/budgets': typeof AdminBudgetsRoute
   '/admin/calendar': typeof AdminCalendarRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/notifications': typeof AdminNotificationsRoute
   '/admin/orders': typeof AdminOrdersRoute
+  '/admin/preferences': typeof AdminPreferencesRoute
   '/admin/products': typeof AdminProductsRoute
   '/admin/replacement-inventory': typeof AdminReplacementInventoryRoute
   '/admin/replacements': typeof AdminReplacementsRoute
   '/admin/stock': typeof AdminStockRoute
   '/admin/teams': typeof AdminTeamsRoute
   '/admin/users': typeof AdminUsersRoute
+  '/shop/dashboard': typeof ShopDashboardRoute
   '/shop/orders': typeof ShopOrdersRoute
   '/shop/replacements': typeof ShopReplacementsRoute
   '/admin/': typeof AdminIndexRoute
@@ -129,16 +157,20 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/select-team': typeof SelectTeamRoute
+  '/admin/audit': typeof AdminAuditRoute
+  '/admin/budgets': typeof AdminBudgetsRoute
   '/admin/calendar': typeof AdminCalendarRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/notifications': typeof AdminNotificationsRoute
   '/admin/orders': typeof AdminOrdersRoute
+  '/admin/preferences': typeof AdminPreferencesRoute
   '/admin/products': typeof AdminProductsRoute
   '/admin/replacement-inventory': typeof AdminReplacementInventoryRoute
   '/admin/replacements': typeof AdminReplacementsRoute
   '/admin/stock': typeof AdminStockRoute
   '/admin/teams': typeof AdminTeamsRoute
   '/admin/users': typeof AdminUsersRoute
+  '/shop/dashboard': typeof ShopDashboardRoute
   '/shop/orders': typeof ShopOrdersRoute
   '/shop/replacements': typeof ShopReplacementsRoute
   '/admin': typeof AdminIndexRoute
@@ -148,16 +180,20 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/select-team': typeof SelectTeamRoute
+  '/admin/audit': typeof AdminAuditRoute
+  '/admin/budgets': typeof AdminBudgetsRoute
   '/admin/calendar': typeof AdminCalendarRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/notifications': typeof AdminNotificationsRoute
   '/admin/orders': typeof AdminOrdersRoute
+  '/admin/preferences': typeof AdminPreferencesRoute
   '/admin/products': typeof AdminProductsRoute
   '/admin/replacement-inventory': typeof AdminReplacementInventoryRoute
   '/admin/replacements': typeof AdminReplacementsRoute
   '/admin/stock': typeof AdminStockRoute
   '/admin/teams': typeof AdminTeamsRoute
   '/admin/users': typeof AdminUsersRoute
+  '/shop/dashboard': typeof ShopDashboardRoute
   '/shop/orders': typeof ShopOrdersRoute
   '/shop/replacements': typeof ShopReplacementsRoute
   '/admin/': typeof AdminIndexRoute
@@ -168,16 +204,20 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/select-team'
+    | '/admin/audit'
+    | '/admin/budgets'
     | '/admin/calendar'
     | '/admin/login'
     | '/admin/notifications'
     | '/admin/orders'
+    | '/admin/preferences'
     | '/admin/products'
     | '/admin/replacement-inventory'
     | '/admin/replacements'
     | '/admin/stock'
     | '/admin/teams'
     | '/admin/users'
+    | '/shop/dashboard'
     | '/shop/orders'
     | '/shop/replacements'
     | '/admin/'
@@ -186,16 +226,20 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/select-team'
+    | '/admin/audit'
+    | '/admin/budgets'
     | '/admin/calendar'
     | '/admin/login'
     | '/admin/notifications'
     | '/admin/orders'
+    | '/admin/preferences'
     | '/admin/products'
     | '/admin/replacement-inventory'
     | '/admin/replacements'
     | '/admin/stock'
     | '/admin/teams'
     | '/admin/users'
+    | '/shop/dashboard'
     | '/shop/orders'
     | '/shop/replacements'
     | '/admin'
@@ -204,16 +248,20 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/select-team'
+    | '/admin/audit'
+    | '/admin/budgets'
     | '/admin/calendar'
     | '/admin/login'
     | '/admin/notifications'
     | '/admin/orders'
+    | '/admin/preferences'
     | '/admin/products'
     | '/admin/replacement-inventory'
     | '/admin/replacements'
     | '/admin/stock'
     | '/admin/teams'
     | '/admin/users'
+    | '/shop/dashboard'
     | '/shop/orders'
     | '/shop/replacements'
     | '/admin/'
@@ -223,16 +271,20 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SelectTeamRoute: typeof SelectTeamRoute
+  AdminAuditRoute: typeof AdminAuditRoute
+  AdminBudgetsRoute: typeof AdminBudgetsRoute
   AdminCalendarRoute: typeof AdminCalendarRoute
   AdminLoginRoute: typeof AdminLoginRoute
   AdminNotificationsRoute: typeof AdminNotificationsRoute
   AdminOrdersRoute: typeof AdminOrdersRoute
+  AdminPreferencesRoute: typeof AdminPreferencesRoute
   AdminProductsRoute: typeof AdminProductsRoute
   AdminReplacementInventoryRoute: typeof AdminReplacementInventoryRoute
   AdminReplacementsRoute: typeof AdminReplacementsRoute
   AdminStockRoute: typeof AdminStockRoute
   AdminTeamsRoute: typeof AdminTeamsRoute
   AdminUsersRoute: typeof AdminUsersRoute
+  ShopDashboardRoute: typeof ShopDashboardRoute
   ShopOrdersRoute: typeof ShopOrdersRoute
   ShopReplacementsRoute: typeof ShopReplacementsRoute
   AdminIndexRoute: typeof AdminIndexRoute
@@ -283,6 +335,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShopOrdersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/shop/dashboard': {
+      id: '/shop/dashboard'
+      path: '/shop/dashboard'
+      fullPath: '/shop/dashboard'
+      preLoaderRoute: typeof ShopDashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/users': {
       id: '/admin/users'
       path: '/admin/users'
@@ -325,6 +384,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminProductsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/preferences': {
+      id: '/admin/preferences'
+      path: '/admin/preferences'
+      fullPath: '/admin/preferences'
+      preLoaderRoute: typeof AdminPreferencesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/orders': {
       id: '/admin/orders'
       path: '/admin/orders'
@@ -353,22 +419,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCalendarRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/budgets': {
+      id: '/admin/budgets'
+      path: '/admin/budgets'
+      fullPath: '/admin/budgets'
+      preLoaderRoute: typeof AdminBudgetsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/audit': {
+      id: '/admin/audit'
+      path: '/admin/audit'
+      fullPath: '/admin/audit'
+      preLoaderRoute: typeof AdminAuditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SelectTeamRoute: SelectTeamRoute,
+  AdminAuditRoute: AdminAuditRoute,
+  AdminBudgetsRoute: AdminBudgetsRoute,
   AdminCalendarRoute: AdminCalendarRoute,
   AdminLoginRoute: AdminLoginRoute,
   AdminNotificationsRoute: AdminNotificationsRoute,
   AdminOrdersRoute: AdminOrdersRoute,
+  AdminPreferencesRoute: AdminPreferencesRoute,
   AdminProductsRoute: AdminProductsRoute,
   AdminReplacementInventoryRoute: AdminReplacementInventoryRoute,
   AdminReplacementsRoute: AdminReplacementsRoute,
   AdminStockRoute: AdminStockRoute,
   AdminTeamsRoute: AdminTeamsRoute,
   AdminUsersRoute: AdminUsersRoute,
+  ShopDashboardRoute: ShopDashboardRoute,
   ShopOrdersRoute: ShopOrdersRoute,
   ShopReplacementsRoute: ShopReplacementsRoute,
   AdminIndexRoute: AdminIndexRoute,

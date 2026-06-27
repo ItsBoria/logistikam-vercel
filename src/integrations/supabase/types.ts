@@ -16,22 +16,70 @@ export type Database = {
     Tables: {
       admin_notification_prefs: {
         Row: {
+          email_enabled: boolean
           enabled: boolean
           event_type: string
+          in_app_enabled: boolean
+          push_enabled: boolean
           updated_at: string
           user_id: string
         }
         Insert: {
+          email_enabled?: boolean
           enabled?: boolean
           event_type: string
+          in_app_enabled?: boolean
+          push_enabled?: boolean
           updated_at?: string
           user_id: string
         }
         Update: {
+          email_enabled?: boolean
           enabled?: boolean
           event_type?: string
+          in_app_enabled?: boolean
+          push_enabled?: boolean
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      admin_preferences: {
+        Row: {
+          appearance: string
+          compact_mode: boolean
+          default_section: string
+          pinned_actions: Json
+          reduced_animations: boolean
+          saved_filters: Json
+          updated_at: string
+          user_id: string
+          visible_widgets: Json
+          widget_order: Json
+        }
+        Insert: {
+          appearance?: string
+          compact_mode?: boolean
+          default_section?: string
+          pinned_actions?: Json
+          reduced_animations?: boolean
+          saved_filters?: Json
+          updated_at?: string
+          user_id: string
+          visible_widgets?: Json
+          widget_order?: Json
+        }
+        Update: {
+          appearance?: string
+          compact_mode?: boolean
+          default_section?: string
+          pinned_actions?: Json
+          reduced_animations?: boolean
+          saved_filters?: Json
+          updated_at?: string
+          user_id?: string
+          visible_widgets?: Json
+          widget_order?: Json
         }
         Relationships: []
       }
@@ -404,25 +452,34 @@ export type Database = {
       profiles: {
         Row: {
           created_at: string
+          deactivated_at: string | null
+          deactivated_by: string | null
           display_name: string | null
           email: string | null
           id: string
+          is_active: boolean
           is_approver: boolean
           updated_at: string
         }
         Insert: {
           created_at?: string
+          deactivated_at?: string | null
+          deactivated_by?: string | null
           display_name?: string | null
           email?: string | null
           id: string
+          is_active?: boolean
           is_approver?: boolean
           updated_at?: string
         }
         Update: {
           created_at?: string
+          deactivated_at?: string | null
+          deactivated_by?: string | null
           display_name?: string | null
           email?: string | null
           id?: string
+          is_active?: boolean
           is_approver?: boolean
           updated_at?: string
         }
@@ -666,20 +723,29 @@ export type Database = {
       }
       user_roles: {
         Row: {
+          assigned_at: string
+          assigned_by_user_id: string | null
           created_at: string
           id: string
+          is_active: boolean
           role: Database["public"]["Enums"]["app_role"]
           user_id: string
         }
         Insert: {
+          assigned_at?: string
+          assigned_by_user_id?: string | null
           created_at?: string
           id?: string
+          is_active?: boolean
           role: Database["public"]["Enums"]["app_role"]
           user_id: string
         }
         Update: {
+          assigned_at?: string
+          assigned_by_user_id?: string | null
           created_at?: string
           id?: string
+          is_active?: boolean
           role?: Database["public"]["Enums"]["app_role"]
           user_id?: string
         }
@@ -701,7 +767,7 @@ export type Database = {
       team_month_spent: { Args: { _team_id: string }; Returns: number }
     }
     Enums: {
-      app_role: "admin" | "staff"
+      app_role: "admin" | "staff" | "OWNER" | "WORK_MANAGER" | "ADMIN" | "USER"
       order_status:
         | "pending"
         | "approved"
@@ -838,7 +904,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "staff"],
+      app_role: ["admin", "staff", "OWNER", "WORK_MANAGER", "ADMIN", "USER"],
       order_status: [
         "pending",
         "approved",

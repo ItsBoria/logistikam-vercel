@@ -38,8 +38,21 @@ function ensureConfigured(): { ok: boolean; error?: string } {
 export type AdminEventType =
   | "order_created"
   | "order_awaiting_approval"
+  | "order_approved"
+  | "order_rejected"
+  | "order_ready"
+  | "order_cancelled"
+  | "budget_low"
+  | "budget_exceeded"
+  | "budget_reset_completed"
+  | "budget_reset_failed"
+  | "calendar_awaiting_signature"
+  | "calendar_approved"
+  | "calendar_rejected"
   | "low_stock"
-  | "replacement_request";
+  | "out_of_stock"
+  | "replacement_request"
+  | "system_alert";
 
 /**
  * Send a push to every admin/staff user who has the event enabled.
@@ -61,18 +74,21 @@ export async function sendPushToAdmins(
     const { data: roleRows } = await supabaseAdmin
       .from("user_roles")
       .select("user_id, role")
-      .in("role", ["admin", "staff"]);
+      .eq("is_active", true)
+      .in("role", ["OWNER", "WORK_MANAGER", "ADMIN"]);
     const userIds = Array.from(new Set((roleRows ?? []).map((r: any) => r.user_id)));
     if (!userIds.length) return { sent: 0, removed: 0, failed: 0 };
 
     // Filter to users with this event enabled (or no row = default ON)
     const { data: prefRows } = await supabaseAdmin
       .from("admin_notification_prefs")
-      .select("user_id, enabled")
+      .select("user_id, enabled, push_enabled")
       .eq("event_type", eventType)
       .in("user_id", userIds);
     const prefMap = new Map<string, boolean>();
-    for (const r of prefRows ?? []) prefMap.set((r as any).user_id, (r as any).enabled);
+    for (const r of prefRows ?? []) {
+      prefMap.set((r as any).user_id, (r as any).push_enabled ?? (r as any).enabled);
+    }
 
     const targets = userIds.filter((uid) => prefMap.get(uid) !== false); // default ON
     if (!targets.length) return { sent: 0, removed: 0, failed: 0 };

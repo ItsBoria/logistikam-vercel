@@ -1,19 +1,14 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
+import { assertMinRole } from "./authz.server";
 
 async function assertAdmin(userId: string) {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data } = await supabaseAdmin
-    .from("user_roles").select("id").eq("user_id", userId).eq("role", "admin").maybeSingle();
-  if (!data) throw new Error("גישה לאדמין בלבד");
+  return assertMinRole(userId, "ADMIN");
 }
 
 async function assertAdminOrStaff(userId: string) {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data } = await supabaseAdmin
-    .from("user_roles").select("role").eq("user_id", userId).in("role", ["admin", "staff"]);
-  if (!data || data.length === 0) throw new Error("גישה מורשית בלבד");
+  return assertMinRole(userId, "ADMIN");
 }
 
 export const getAdminDashboard = createServerFn({ method: "GET" })
@@ -123,10 +118,16 @@ export const setTeamMonthlyLimit = createServerFn({ method: "POST" })
     }).parse(input)
   )
   .handler(async ({ data, context }) => {
-    await assertAdmin(context.userId);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { error } = await supabaseAdmin
-      .from("teams").update({ monthly_limit: data.monthly_limit }).eq("id", data.team_id);
+    const role = await assertAdmin(context.userId);
+    if (role !== "OWNER" && role !== "WORK_MANAGER") {
+      throw new Error("רק בעלים או מנהל עבודה רשאים לשנות תקציב");
+    }
+    const { error } = await (context.supabase as any).rpc("reset_team_budget", {
+      _team_id: data.team_id,
+      _new_budget: data.monthly_limit,
+      _reason: "Budget updated from dashboard",
+      _apply_carry_over: false,
+    });
     if (error) throw new Error(error.message);
     return { ok: true };
   });

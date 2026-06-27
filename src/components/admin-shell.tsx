@@ -12,6 +12,7 @@ import { listActiveTeams, getTeamContextById } from "@/lib/membership.functions"
 import { AdminBottomTabBar } from "@/components/admin-bottom-tab-bar";
 import { LogOut, Loader2, Eye } from "lucide-react";
 import { useHideOnScroll } from "@/hooks/use-scroll-direction";
+import { useAdminPreferences } from "@/hooks/use-admin-preferences";
 
 export function AdminShell({
   children,
@@ -71,8 +72,18 @@ export function AdminShell({
 function AdminShellInner({ session, roles, children }: { session: any; roles: any; children: ReactNode }) {
   const navigate = useNavigate();
   const hidden = useHideOnScroll();
+  const { data: preferences } = useAdminPreferences();
+  useEffect(() => {
+    const root = document.documentElement;
+    const appearance = preferences?.appearance ?? "system";
+    const shouldDark = appearance === "dark" ||
+      (appearance === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    root.classList.toggle("dark", shouldDark);
+    root.classList.toggle("reduce-app-motion", !!preferences?.reduced_animations);
+    root.classList.toggle("admin-compact", !!preferences?.compact_mode);
+  }, [preferences]);
   return (
-    <div className="min-h-screen bg-secondary/30">
+    <div className="min-h-screen bg-secondary/30 admin-surface">
       <header
         className={[
           "bg-card/80 backdrop-blur border-b sticky top-0 z-30 transition-transform duration-300 ease-out",
@@ -98,8 +109,8 @@ function AdminShellInner({ session, roles, children }: { session: any; roles: an
           </div>
         </div>
       </header>
-      <main className="max-w-7xl mx-auto p-4">{children}</main>
-      <AdminBottomTabBar role={roles.isAdmin ? "admin" : "staff"} />
+      <main className="max-w-7xl mx-auto p-4 admin-main">{children}</main>
+      <AdminBottomTabBar role={roles.role} />
     </div>
   );
 }
