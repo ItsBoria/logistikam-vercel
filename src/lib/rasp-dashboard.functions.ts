@@ -38,6 +38,7 @@ function money(value: unknown) {
 
 const openStatuses = ["pending", "awaiting_approval", "approved", "preparing", "ready"];
 const spentStatuses = ["completed"];
+const categoryColors = ["#0ea5e9", "#8b5cf6", "#10b981", "#f59e0b", "#ef4444", "#6366f1"];
 
 export const getRaspDashboard = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -70,7 +71,7 @@ export const getRaspDashboard = createServerFn({ method: "POST" })
     ] = await Promise.all([
       (supabaseAdmin as any)
         .from("orders")
-        .select("id, total, status, created_at, ordered_by_name, order_items(id, product_id, name, price, quantity, category_id, products(id, item_code, unit_of_measure, category_id, item_categories(id, name, color)))")
+        .select("id, total, status, created_at, ordered_by_name, order_items(id, product_id, name, price, quantity)")
         .eq("team_id", teamId).gte("created_at", fromIso).lte("created_at", toIso)
         .order("created_at", { ascending: false }),
       (supabaseAdmin as any).from("orders").select("total, status")
@@ -120,8 +121,6 @@ export const getRaspDashboard = createServerFn({ method: "POST" })
       .filter((order: any) => spentStatuses.includes(order.status))
       .reduce((sum: number, order: any) => sum + money(order.total), 0);
 
-    const itemMap = new Map<string, any>();
-    const categoryMap = new Map<string, any>();
     const monthlyMap = new Map<string, any>();
     for (const order of completedOrders) {
       const month = String(order.created_at).slice(0, 7);
@@ -129,43 +128,10 @@ export const getRaspDashboard = createServerFn({ method: "POST" })
       monthRow.amount += money(order.total);
       monthRow.orders += 1;
       for (const item of order.order_items ?? []) {
-        const categoryId = item.category_id ?? item.products?.category_id;
-        if (data.category_id && categoryId !== data.category_id) continue;
-        const key = item.product_id ?? item.name;
-        const row = itemMap.get(key) ?? {
-          product_id: item.product_id,
-          name: item.name,
-          code: item.products?.item_code ?? null,
-          quantity: 0,
-          amount: 0,
-          order_ids: new Set<string>(),
-        };
-        row.quantity += Number(item.quantity);
-        row.amount += Number(item.price) * Number(item.quantity);
-        row.order_ids.add(order.id);
-        itemMap.set(key, row);
         monthRow.items.set(item.name, (monthRow.items.get(item.name) ?? 0) + Number(item.quantity));
-
-        const category = item.products?.item_categories;
-        const categoryKey = categoryId ?? "uncategorized";
-        const categoryRow = categoryMap.get(categoryKey) ?? {
-          id: categoryId,
-          name: category?.name ?? "ללא קטגוריה",
-          color: category?.color ?? "#64748b",
-          amount: 0,
-        };
-        categoryRow.amount += Number(item.price) * Number(item.quantity);
-        categoryMap.set(categoryKey, categoryRow);
       }
       monthlyMap.set(month, monthRow);
     }
-    const totalQuantity = [...itemMap.values()].reduce((sum, item) => sum + item.quantity, 0);
-    const items = [...itemMap.values()].map((item) => ({
-      ...item,
-      orders: item.order_ids.size,
-      percentage: totalQuantity ? Math.round((item.quantity / totalQuantity) * 100) : 0,
-      order_ids: undefined,
-    }));
     const monthly = [...monthlyMap.values()].sort((a, b) => a.month.localeCompare(b.month)).map((row) => ({
       month: row.month,
       amount: row.amount,
@@ -185,6 +151,14 @@ export const getRaspDashboard = createServerFn({ method: "POST" })
         : item.status;
       return { ...item, status: derivedStatus };
     });
+    const replacementProductsRaw = replacementProductsResult.data ?? [];
+    const categories = [...new Set(replacementProductsRaw.map((product: any) => product.category?.trim() || "ללא קטגוריה"))]
+      .sort((a, b) => a.localeCompare(b, "he"))
+      .map((name, index) => ({ id: name, name, color: categoryColors[index % categoryColors.length] }));
+    const replacementProducts = replacementProductsRaw.filter((product: any) =>
+      !data.replacement_category || (product.category?.trim() || "ללא קטגוריה") === data.replacement_category,
+    );
+
     const replacementSummary = {
       held: replacements.filter((item: any) => ["held", "awaiting_return"].includes(item.status)).length,
       returned: replacements.filter((item: any) => item.status === "returned").length,
@@ -196,6 +170,41 @@ export const getRaspDashboard = createServerFn({ method: "POST" })
         && item.status !== "returned",
       ).length,
     };
+
+    const replacementItemMap = new Map<string, any>();
+    const replacementCategoryMap = new Map<string, any>();
+    for (const item of replacements) {
+      const product = item.replacement_products;
+      const categoryName = product?.category?.trim() || "ללא קטגוריה";
+      if (data.replacement_category && categoryName !== data.replacement_category) continue;
+      const row = replacementItemMap.get(item.product_id) ?? {
+        product_id: item.product_id,
+        name: product?.name ?? "פריט החלפה",
+        quantity: 0,
+        amount: 0,
+        orders: 0,
+      };
+      row.quantity += Number(item.quantity);
+      row.amount += Number(item.quantity);
+      row.orders += 1;
+      replacementItemMap.set(item.product_id, row);
+
+      const categoryRow = replacementCategoryMap.get(categoryName) ?? {
+        id: categoryName,
+        name: categoryName,
+        color: categories.find((category) => category.id === categoryName)?.color ?? "#64748b",
+        amount: 0,
+        quantity: 0,
+      };
+      categoryRow.quantity += Number(item.quantity);
+      categoryRow.amount += Number(item.quantity);
+      replacementCategoryMap.set(categoryName, categoryRow);
+    }
+    const totalReplacementQuantity = [...replacementItemMap.values()].reduce((sum, item) => sum + item.quantity, 0);
+    const replacementItems = [...replacementItemMap.values()].map((item) => ({
+      ...item,
+      percentage: totalReplacementQuantity ? Math.round((item.quantity / totalReplacementQuantity) * 100) : 0,
+    }));
 
     const orderCounts = Object.fromEntries(
       ["pending", "awaiting_approval", "approved", "preparing", "ready", "completed"]
@@ -213,7 +222,7 @@ export const getRaspDashboard = createServerFn({ method: "POST" })
       ...replacements.slice(0, 8).map((item: any) => ({
         id: `replacement-${item.id}`,
         type: "replacement",
-        title: item.products?.name ?? "פריט החלפה",
+        title: item.replacement_products?.name ?? "פריט החלפה",
         status: item.status,
         at: item.returned_at ?? item.created_at,
         amount: null,
@@ -240,13 +249,13 @@ export const getRaspDashboard = createServerFn({ method: "POST" })
       order_counts: orderCounts,
       replacements,
       replacement_summary: replacementSummary,
-      items_by_quantity: [...items].sort((a, b) => b.quantity - a.quantity).slice(0, 10),
-      items_by_spending: [...items].sort((a, b) => b.amount - a.amount).slice(0, 10),
-      items_by_frequency: [...items].sort((a, b) => b.orders - a.orders).slice(0, 10),
+      items_by_quantity: [...replacementItems].sort((a, b) => b.quantity - a.quantity).slice(0, 10),
+      items_by_spending: [...replacementItems].sort((a, b) => b.quantity - a.quantity).slice(0, 10),
+      items_by_frequency: [...replacementItems].sort((a, b) => b.orders - a.orders).slice(0, 10),
       monthly,
-      categories_spending: [...categoryMap.values()].sort((a, b) => b.amount - a.amount),
-      categories: categoriesResult.data ?? [],
-      products: productsResult.data ?? [],
+      categories_spending: [...replacementCategoryMap.values()].sort((a, b) => b.quantity - a.quantity),
+      categories,
+      products: replacementProducts,
       catalog_requests: catalogRequestsResult.data ?? [],
       recent_activity: recentActivity,
     };
@@ -278,14 +287,11 @@ export const createTeamReplacementItem = createServerFn({ method: "POST" })
       throw new Error("קובץ מצורף אינו שייך ליחידה");
     }
     const { data: product } = await (supabaseAdmin as any)
-      .from("products")
-      .select("id, active, can_be_replacement, maximum_quantity, category_id, item_categories(is_active)")
+      .from("replacement_products")
+      .select("id, active")
       .eq("id", data.product_id).maybeSingle();
-    if (!product?.active || !product.can_be_replacement || !product.item_categories?.is_active) {
+    if (!product?.active) {
       throw new Error("הפריט אינו מאושר לשימוש כפריט החלפה");
-    }
-    if (product.maximum_quantity && data.quantity > product.maximum_quantity) {
-      throw new Error(`הכמות המרבית לפריט זה היא ${product.maximum_quantity}`);
     }
     const { data: created, error } = await (supabaseAdmin as any)
       .from("team_replacement_items")
@@ -351,17 +357,11 @@ export const requestCatalogItem = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input) => z.object({
     suggested_name: z.string().trim().min(2).max(150),
-    suggested_category_id: z.string().uuid().optional().nullable(),
+    suggested_category: z.string().trim().max(100).optional().nullable(),
     reason: z.string().trim().min(3).max(1000),
   }).parse(input))
   .handler(async ({ data, context }) => {
     const { supabaseAdmin, teamId } = await requireTeam(context.userId);
-    if (data.suggested_category_id) {
-      const { data: category } = await (supabaseAdmin as any)
-        .from("item_categories").select("id, is_active")
-        .eq("id", data.suggested_category_id).maybeSingle();
-      if (!category?.is_active) throw new Error("הקטגוריה אינה פעילה");
-    }
     const { error } = await (supabaseAdmin as any).from("item_catalog_requests").insert({
       ...data,
       team_id: teamId,

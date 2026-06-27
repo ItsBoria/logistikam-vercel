@@ -114,12 +114,12 @@ function RaspDashboard() {
   const { data, isLoading, error } = useQuery({
     queryKey,
     queryFn: () => dashboardFn({
-      data: { from, to, category_id: categoryId === "all" ? null : categoryId },
+      data: { from, to, replacement_category: categoryId === "all" ? null : categoryId },
     }),
   });
 
   const [replacementForm, setReplacementForm] = useState({
-    category_id: "",
+    category: "",
     product_id: "",
     quantity: 1,
     received_from_name: "",
@@ -141,7 +141,7 @@ function RaspDashboard() {
   });
   const [requestForm, setRequestForm] = useState({
     suggested_name: "",
-    suggested_category_id: "",
+    suggested_category: "",
     reason: "",
   });
 
@@ -154,7 +154,7 @@ function RaspDashboard() {
     ranking === "spending" ? item.amount : ranking === "frequency" ? item.orders : item.quantity,
   ));
   const replacementProducts = (data?.products ?? []).filter(
-    (product: any) => !replacementForm.category_id || product.category_id === replacementForm.category_id,
+    (product: any) => !replacementForm.category || (product.category?.trim() || "ללא קטגוריה") === replacementForm.category,
   );
   const visibleReplacements = useMemo(() => {
     const q = replacementSearch.trim().toLowerCase();
@@ -167,7 +167,7 @@ function RaspDashboard() {
       }
       if (replacementFilter === "overdue" && item.status !== "overdue") return false;
       if (replacementFilter === "returned" && item.status !== "returned") return false;
-      if (q && !`${item.products?.name ?? ""} ${item.received_from_name} ${item.serial_number ?? ""}`.toLowerCase().includes(q)) {
+      if (q && !`${item.replacement_products?.name ?? ""} ${item.received_from_name} ${item.serial_number ?? ""}`.toLowerCase().includes(q)) {
         return false;
       }
       return true;
@@ -270,12 +270,12 @@ function RaspDashboard() {
       await requestItemFn({
         data: {
           suggested_name: requestForm.suggested_name,
-          suggested_category_id: requestForm.suggested_category_id || null,
+          suggested_category: requestForm.suggested_category || null,
           reason: requestForm.reason,
         },
       });
       setRequestOpen(false);
-      setRequestForm({ suggested_name: "", suggested_category_id: "", reason: "" });
+      setRequestForm({ suggested_name: "", suggested_category: "", reason: "" });
       toast.success("הבקשה נשלחה לבדיקת מנהל");
     } catch (e: any) {
       toast.error(e.message);
@@ -450,7 +450,7 @@ function RaspDashboard() {
                 <div key={category.id ?? category.name} className="flex items-center gap-3">
                   <span className="w-3 h-3 rounded-full" style={{ background: category.color }} />
                   <span className="flex-1 text-sm">{category.name}</span>
-                  <span className="font-medium tabular-nums">{currency.format(category.amount)}</span>
+                  <span className="font-medium tabular-nums">{category.quantity} יחידות</span>
                 </div>
               ))}
             </div>
@@ -490,7 +490,7 @@ function RaspDashboard() {
               <Card key={item.id} className={`p-4 space-y-3 ${item.status === "overdue" ? "border-destructive/40" : ""}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <h3 className="font-semibold">{item.products?.name}</h3>
+                    <h3 className="font-semibold">{item.replacement_products?.name}</h3>
                     <p className="text-xs text-muted-foreground">כמות {item.quantity} · התקבל מאת {item.received_from_name}</p>
                   </div>
                   <StatusBadge status={item.status} />
@@ -551,16 +551,16 @@ function RaspDashboard() {
           <div className="space-y-3">
             <label className="text-sm space-y-1 block">
               <span>קטגוריית פריט *</span>
-              <Select value={replacementForm.category_id} onValueChange={(value) => setReplacementForm((form) => ({ ...form, category_id: value, product_id: "" }))}>
+              <Select value={replacementForm.category} onValueChange={(value) => setReplacementForm((form) => ({ ...form, category: value, product_id: "" }))}>
                 <SelectTrigger><SelectValue placeholder="בחר קטגוריה" /></SelectTrigger>
                 <SelectContent>{data.categories.map((category: any) => <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>)}</SelectContent>
               </Select>
             </label>
             <label className="text-sm space-y-1 block">
               <span>פריט *</span>
-              <Select disabled={!replacementForm.category_id} value={replacementForm.product_id} onValueChange={(value) => setReplacementForm((form) => ({ ...form, product_id: value }))}>
-                <SelectTrigger><SelectValue placeholder={replacementForm.category_id ? "בחר פריט מאושר" : "בחר קטגוריה תחילה"} /></SelectTrigger>
-                <SelectContent>{replacementProducts.map((product: any) => <SelectItem key={product.id} value={product.id}>{product.name}{product.item_code ? ` · ${product.item_code}` : ""}</SelectItem>)}</SelectContent>
+              <Select disabled={!replacementForm.category} value={replacementForm.product_id} onValueChange={(value) => setReplacementForm((form) => ({ ...form, product_id: value }))}>
+                <SelectTrigger><SelectValue placeholder={replacementForm.category ? "בחר פריט החלפה" : "בחר קטגוריה תחילה"} /></SelectTrigger>
+                <SelectContent>{replacementProducts.map((product: any) => <SelectItem key={product.id} value={product.id}>{product.name}</SelectItem>)}</SelectContent>
               </Select>
             </label>
             <div className="grid sm:grid-cols-2 gap-3">
@@ -600,7 +600,7 @@ function RaspDashboard() {
         <DialogContent>
           <DialogHeader><DialogTitle>סימון פריט כהוחזר</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            <div className="rounded-lg bg-muted p-3 text-sm">{returning?.products?.name} · כמות {returning?.quantity}</div>
+            <div className="rounded-lg bg-muted p-3 text-sm">{returning?.replacement_products?.name} · כמות {returning?.quantity}</div>
             <Field label="תאריך החזרה"><Input type="date" dir="ltr" value={returnForm.actual_return_date} onChange={(e) => setReturnForm({ ...returnForm, actual_return_date: e.target.value })} /></Field>
             <Field label="הוחזר אל"><Input value={returnForm.returned_to_name} onChange={(e) => setReturnForm({ ...returnForm, returned_to_name: e.target.value })} /></Field>
             <Field label="מצב בהחזרה"><Input value={returnForm.condition_returned} onChange={(e) => setReturnForm({ ...returnForm, condition_returned: e.target.value })} /></Field>
@@ -624,7 +624,7 @@ function RaspDashboard() {
             <Field label="שם הפריט המוצע"><Input value={requestForm.suggested_name} onChange={(e) => setRequestForm({ ...requestForm, suggested_name: e.target.value })} /></Field>
             <label className="text-sm space-y-1 block">
               <span>קטגוריה מוצעת</span>
-              <Select value={requestForm.suggested_category_id} onValueChange={(value) => setRequestForm({ ...requestForm, suggested_category_id: value })}>
+              <Select value={requestForm.suggested_category} onValueChange={(value) => setRequestForm({ ...requestForm, suggested_category: value })}>
                 <SelectTrigger><SelectValue placeholder="בחר קטגוריה" /></SelectTrigger>
                 <SelectContent>{data.categories.map((category: any) => <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>)}</SelectContent>
               </Select>
