@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Home, ClipboardList, MoreHorizontal, Replace, LogOut, ShoppingCart } from "lucide-react";
+import { Home, ClipboardList, LayoutDashboard, MoreHorizontal, Replace, LogOut, ShoppingCart } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { setTeamSession } from "@/lib/team-session";
@@ -10,6 +10,7 @@ import { PushToggle } from "@/components/push-toggle";
 import { InstallButton } from "@/components/install-button";
 import { useCart } from "@/lib/cart-context";
 import { getShopData } from "@/lib/team.functions";
+import { getRaspAccess } from "@/lib/rasp-dashboard.functions";
 import { supabase } from "@/integrations/supabase/client";
 
 type Item = { to: string; label: string; icon: any; exact?: boolean };
@@ -175,6 +176,14 @@ export function BottomTabBar({ pin }: { pin?: string }) {
   const navigate = useNavigate();
   const isActive = useIsActive();
   const [open, setOpen] = useState(false);
+  const getRaspAccessFn = useServerFn(getRaspAccess);
+  const { data: raspAccess } = useQuery({
+    queryKey: ["rasp-access"],
+    queryFn: () => getRaspAccessFn(),
+    staleTime: 30_000,
+    retry: false,
+  });
+  const showRaspDashboard = !!raspAccess?.can_access;
 
   function logout() {
     setTeamSession(null);
@@ -195,6 +204,14 @@ export function BottomTabBar({ pin }: { pin?: string }) {
         >
           {pin ? <StorePill active={isActive("/shop", true)} /> : <Tab item={SHOP_ITEMS[0]} active={isActive("/shop", true)} />}
           {pin && <CartPill pin={pin} />}
+          {showRaspDashboard && (
+            <PillBase active={isActive("/shop/dashboard")} to="/shop/dashboard" ariaLabel="מסך רס״פ">
+              <LayoutDashboard className="w-5 h-5 shrink-0" />
+              <span className={["text-xs font-medium whitespace-nowrap", isActive("/shop/dashboard") ? "hidden sm:inline" : "hidden md:group-hover:inline"].join(" ")}>
+                מסך רס״פ
+              </span>
+            </PillBase>
+          )}
           <Tab item={SHOP_ITEMS[1]} active={isActive("/shop/replacements")} />
           <Tab item={SHOP_ITEMS[2]} active={isActive("/shop/orders")} />
           <Sheet open={open} onOpenChange={setOpen}>

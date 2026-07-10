@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { getUserRole, ROLE_LEVEL } from "./authz.server";
 
 const dateFilterSchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -19,6 +20,38 @@ async function requireTeam(userId: string) {
   if (!membership?.team_id || !team?.active) throw new Error("לא נמצא שיוך ליחידה פעילה");
   return { supabaseAdmin, teamId: membership.team_id as string, team };
 }
+
+async function getRaspAuthorization(userId: string) {
+  const teamContext = await requireTeam(userId);
+  const role = await getUserRole(userId);
+  const canAccess = ROLE_LEVEL[role] >= ROLE_LEVEL.ADMIN;
+  return { ...teamContext, role, canAccess };
+}
+
+async function requireRaspTeam(userId: string) {
+  const auth = await getRaspAuthorization(userId);
+  if (!auth.canAccess) throw new Error("אין הרשאה למסך רס״פ");
+  return auth;
+}
+
+export const getRaspAccess = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    try {
+      const auth = await getRaspAuthorization(context.userId);
+      return {
+        can_access: auth.canAccess,
+        role: auth.role,
+        team_id: auth.teamId,
+      };
+    } catch {
+      return {
+        can_access: false,
+        role: "USER",
+        team_id: null,
+      };
+    }
+  });
 
 function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -45,7 +78,7 @@ export const getRaspDashboard = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input) => dateFilterSchema.parse(input))
   .handler(async ({ data, context }) => {
-    const { supabaseAdmin, teamId, team } = await requireTeam(context.userId);
+    const { supabaseAdmin, teamId, team } = await requireRaspTeam(context.userId);
     const defaults = defaultRange();
     const from = data.from ?? defaults.from;
     const to = data.to ?? defaults.to;
@@ -280,7 +313,7 @@ export const upsertConstructionIssue = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input) => constructionIssueSchema.parse(input))
   .handler(async ({ data, context }) => {
-    const { supabaseAdmin, teamId } = await requireTeam(context.userId);
+    const { supabaseAdmin, teamId } = await requireRaspTeam(context.userId);
     const payload = {
       location_type: data.location_type,
       location_label: data.location_label,
@@ -325,7 +358,7 @@ export const createTeamReplacementItem = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input) => replacementSchema.parse(input))
   .handler(async ({ data, context }) => {
-    const { supabaseAdmin, teamId } = await requireTeam(context.userId);
+    const { supabaseAdmin, teamId } = await requireRaspTeam(context.userId);
     if (data.expected_return_date && data.expected_return_date < data.received_date) {
       throw new Error("תאריך ההחזרה אינו יכול להיות לפני תאריך הקבלה");
     }
@@ -369,7 +402,7 @@ export const returnTeamReplacementItem = createServerFn({ method: "POST" })
     confirmed: z.literal(true),
   }).parse(input))
   .handler(async ({ data, context }) => {
-    const { supabaseAdmin, teamId } = await requireTeam(context.userId);
+    const { supabaseAdmin, teamId } = await requireRaspTeam(context.userId);
     const { data: item } = await (supabaseAdmin as any)
       .from("team_replacement_items").select("id, status, received_date")
       .eq("id", data.id).eq("team_id", teamId).maybeSingle();
@@ -407,7 +440,7 @@ export const requestCatalogItem = createServerFn({ method: "POST" })
     reason: z.string().trim().min(3).max(1000),
   }).parse(input))
   .handler(async ({ data, context }) => {
-    const { supabaseAdmin, teamId } = await requireTeam(context.userId);
+    const { supabaseAdmin, teamId } = await requireRaspTeam(context.userId);
     const { error } = await (supabaseAdmin as any).from("item_catalog_requests").insert({
       ...data,
       team_id: teamId,
@@ -426,7 +459,7 @@ export const uploadReplacementAttachment = createServerFn({ method: "POST" })
     data_base64: z.string().min(1).max(15_000_000),
   }).parse(input))
   .handler(async ({ data, context }) => {
-    const { supabaseAdmin, teamId } = await requireTeam(context.userId);
+    const { supabaseAdmin, teamId } = await requireRaspTeam(context.userId);
     const ext = (data.filename.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "");
     const path = `${teamId}/${context.userId}/${crypto.randomUUID()}.${ext}`;
     const bytes = Buffer.from(data.data_base64, "base64");
