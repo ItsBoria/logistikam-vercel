@@ -4,6 +4,8 @@ const KEY = "team_session_v1";
 const ADMIN_ACTING_KEY = "admin_acting_team_v1";
 
 export type TeamSession = {
+  unit_id?: string;
+  unit_name?: string;
   team_id: string;
   team_name: string;
   pin: string;

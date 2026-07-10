@@ -2,7 +2,7 @@
 
 This file is a living map of the LogistikaM codebase. Read it before making changes so you do not need to rediscover the project structure every time.
 
-Last updated: 2026-07-10
+Last updated: 2026-07-11
 
 ## Project overview
 
@@ -15,15 +15,16 @@ LogistikaM is a Hebrew/RTL logistics web application for military-style unit wor
 - Supabase for auth, database, storage, server-side privileged operations, and migrations.
 - Vercel/Nitro output through TanStack Start/Vite.
 
-The important product rule after the multi-unit separation work:
+The important product rule after the Unit/Team correction:
 
-- `public.teams` is the unit/tenant boundary.
-- Store products are unit-owned through `products.team_id`.
-- Store categories are unit-owned through `item_categories.team_id`.
-- Replacement inventory is unit-owned through `replacement_products.team_id`.
-- Orders, replacement requests, RASP replacement items, budgets, missions, and many operational tables are team/unit scoped.
-- Regular admins should only see/manage the unit they are assigned to through `team_members`.
-- Higher roles such as owner/work-manager can oversee more than one unit.
+- `public.units` is the organization/tenant boundary.
+- `public.teams` are customer groups inside a Unit and must have `teams.unit_id`.
+- Unit administrators belong to Units through `unit_memberships`.
+- Normal Team users belong to Teams through `team_memberships`.
+- Products, item categories, replacement products, orders, budgets, missions, RASP data, reports, notifications, and audit data should be scoped by `unit_id`; Team-specific data also needs `team_id`.
+- Unit admins may manage all Teams inside their active Unit without separate Team membership for every Team.
+- Normal users must only see Teams where they have explicit active Team membership.
+- Do not use `teams` as the tenant boundary going forward.
 
 ## Technology stack
 
@@ -103,7 +104,7 @@ Routes are file-based under `src/routes`.
   Main landing/login flow. Handles admin/store entry paths and team context checks.
 
 - `src/routes/select-team.tsx`  
-  Authenticated user team selection/assignment flow.
+  Authenticated two-step Unit → Team selection flow. Shows only authorized Units, then only authorized Teams inside the selected Unit.
 
 ### Team/store routes
 
@@ -245,45 +246,71 @@ Compatibility notes:
 - legacy `STAFF` is treated like `ADMIN` in some places.
 - `supabase/migrations/20260710123000_single_owner_active_unit_scope.sql` enforces only one active `OWNER` role.
 
-### Team membership
+### Unit and Team membership
 
 - `src/lib/membership.functions.ts`
 
 Main functions:
 
+- `listActiveUnits`
+- `getMyActiveUnit`
+- `setMyUnit`
+- `listTeamsForActiveUnit`
 - `getMyTeamContext`
-- `listActiveTeams`
+- `listActiveTeams` (compatibility alias for active-Unit Teams)
 - `getMyActiveAdminTeam`
 - `setMyTeam`
 - `setUserTeamAdmin`
 - `getTeamContextById`
 
-Current important limitation:
+Current behavior:
 
-- `team_members` was originally one team per user (`user_id` primary key).
-- The latest separation pass added team role/is_active fields and an active-unit selector in the admin header.
-- Regular admin scope is determined by the active `team_members` row.
-- Owner also selects an active unit before viewing or editing operational unit data. This prevents mixed global product/inventory/order views.
-- Only `OWNER` can see all units in the admin unit selector.
-- Unit admins (`WORK_MANAGER` / `ADMIN`) only see their assigned unit and cannot move themselves to another unit.
-- The current selector changes the user's single `team_members` row. It is an active-unit selector, not full multi-membership yet.
+- Active Unit/Team context is stored server-side in `user_active_contexts`.
+- `OWNER` is treated as platform owner and may select any active Unit.
+- Unit admins (`UNIT_OWNER`, `WORK_MANAGER`, `LOGISTICS_NCO`, `UNIT_ADMIN`) can access all active Teams inside their active Unit.
+- Normal users must have explicit `team_memberships` rows to access a Team.
+- Legacy `team_members` remains only as a compatibility bridge for older flows and imported data.
 
 If implementing true multi-unit user membership, expect to change:
 
-- `team_members` schema constraints.
 - `membership.functions.ts`
-- team selector UX.
+- Unit and Team selector UX.
 - route guards/admin shell visibility checks.
-- server functions that currently call `maybeSingle()` for membership.
+- server functions that still rely on legacy `team_members`.
 
 ## Unit/tenant model
 
-The app uses `teams` as units/tenants. Avoid creating another `tenants` table unless the architecture is deliberately changed.
+The app now uses a proper hierarchy:
+
+```text
+Unit
+  └── Teams
+        └── Team members/customers
+```
+
+Do not rename Teams to Units. Do not remove Teams. Do not treat Teams as the tenant boundary.
+
+New migration:
+
+- `supabase/migrations/20260711100000_units_team_memberships_foundation.sql`
+
+This migration adds:
+
+- `units`
+- `teams.unit_id`
+- `unit_memberships`
+- `team_memberships`
+- `user_active_contexts`
+- `team_products`
+- `unit_id` compatibility columns on many existing operational tables
+- `unit_team_integrity_issues` validation view
 
 Current unit-owned tables include or should include:
 
-- `teams`
-- `team_members`
+- `units`
+- `unit_memberships`
+- `teams` through `teams.unit_id`
+- `team_memberships`
 - `orders`
 - `order_items` indirectly through `orders`
 - `team_month_spent`
@@ -299,7 +326,11 @@ Current unit-owned tables include or should include:
 - `products`
 - `replacement_products`
 
-The migration `supabase/migrations/20260710120000_unit_scoped_catalog_inventory.sql` added:
+Older migration `supabase/migrations/20260710120000_unit_scoped_catalog_inventory.sql` incorrectly used `teams` as the unit boundary. It is retained for compatibility but should not guide future architecture.
+
+The migration `supabase/migrations/20260711100000_units_team_memberships_foundation.sql` corrects the model and backfills existing Teams into an original Unit.
+
+The older migration `supabase/migrations/20260710120000_unit_scoped_catalog_inventory.sql` added:
 
 - `team_members.role`
 - `team_members.is_active`
@@ -310,7 +341,7 @@ The migration `supabase/migrations/20260710120000_unit_scoped_catalog_inventory.
 - team-aware unique indexes for category code and product item code
 - team-aware catalog validation
 
-When adding new business data tables, include `team_id` unless the data is intentionally global.
+When adding new business data tables, include `unit_id`. Add `team_id` only when the record belongs to a specific Team inside that Unit.
 
 ## Store/order domain
 

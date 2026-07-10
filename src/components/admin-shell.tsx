@@ -8,7 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { setAdminActing, setTeamSession } from "@/lib/team-session";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { getMyActiveAdminTeam, getTeamContextById, listActiveTeams, setMyTeam } from "@/lib/membership.functions";
+import { getMyActiveUnit, listActiveUnits, setMyUnit } from "@/lib/membership.functions";
 import { AdminBottomTabBar } from "@/components/admin-bottom-tab-bar";
 import { Building2, Loader2, LogOut } from "lucide-react";
 import { useHideOnScroll } from "@/hooks/use-scroll-direction";
@@ -116,19 +116,17 @@ function AdminShellInner({ session, roles, children }: { session: any; roles: an
 function ActiveUnitPicker() {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const listFn = useServerFn(listActiveTeams);
-  const ctxFn = useServerFn(getTeamContextById);
-  const setTeamFn = useServerFn(setMyTeam);
-  const activeFn = useServerFn(getMyActiveAdminTeam);
-  const { data: teams } = useQuery({ queryKey: ["active-teams"], queryFn: () => listFn() });
-  const { data: activeTeam } = useQuery({ queryKey: ["active-admin-team"], queryFn: () => activeFn() });
+  const listFn = useServerFn(listActiveUnits);
+  const setUnitFn = useServerFn(setMyUnit);
+  const activeFn = useServerFn(getMyActiveUnit);
+  const { data: units } = useQuery({ queryKey: ["active-units"], queryFn: () => listFn() });
+  const { data: activeUnit } = useQuery({ queryKey: ["active-unit"], queryFn: () => activeFn() });
 
-  async function onPick(teamId: string) {
+  async function onPick(unitId: string) {
     try {
-      await setTeamFn({ data: { team_id: teamId } });
-      const ctx = await ctxFn({ data: { team_id: teamId } });
-      if (ctx) setTeamSession(ctx);
-      setAdminActing(true);
+      await setUnitFn({ data: { unit_id: unitId } });
+      setTeamSession(null);
+      setAdminActing(false);
       await qc.invalidateQueries();
       navigate({ to: "/admin" });
     } catch (e) {
@@ -137,17 +135,16 @@ function ActiveUnitPicker() {
   }
 
   return (
-    <Select value={activeTeam?.team_id ?? undefined} onValueChange={onPick}>
+    <Select value={activeUnit?.unit_id ?? undefined} onValueChange={onPick}>
       <SelectTrigger className="h-8 w-[190px] text-xs">
         <Building2 className="w-3.5 h-3.5 ml-1" />
         <SelectValue placeholder="בחר יחידה" />
       </SelectTrigger>
       <SelectContent>
-        {(teams ?? []).map((team: any) => (
-          <SelectItem key={team.id} value={team.id}>{team.name}</SelectItem>
+        {(units ?? []).map((unit: any) => (
+          <SelectItem key={unit.unit_id} value={unit.unit_id}>{unit.unit_name}</SelectItem>
         ))}
       </SelectContent>
     </Select>
   );
 }
-
