@@ -222,7 +222,7 @@ BEGIN
     UPDATE public.team_replacement_item_history h
     SET unit_id = tri.unit_id
     FROM public.team_replacement_items tri
-    WHERE h.team_replacement_item_id = tri.id AND h.unit_id IS NULL;
+    WHERE h.replacement_item_id = tri.id AND h.unit_id IS NULL;
   END IF;
 
   IF to_regclass('public.item_catalog_requests') IS NOT NULL THEN
