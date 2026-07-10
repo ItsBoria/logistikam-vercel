@@ -27,6 +27,20 @@ async function assertAdminOrStaff(userId: string) {
 
 async function getAdminTeamScope(supabaseAdmin: any, userId: string, mode: "read" | "write" = "read") {
   const role = await assertAdminOrStaff(userId);
+  const { data: activeMembership } = await supabaseAdmin
+    .from("team_members")
+    .select("team_id")
+    .eq("user_id", userId)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (activeMembership?.team_id) return activeMembership.team_id as string;
+  if (role === "OWNER") {
+    throw new Error("יש לבחור יחידה פעילה לפני צפייה או עריכה של נתוני יחידה.");
+  }
+  throw new Error(mode === "write"
+    ? "לא משויכת לך יחידה פעילה לעריכת נתונים."
+    : "לא משויכת לך יחידה פעילה לצפייה בנתונים.");
+
   if (role === "ADMIN") {
     const { data: membership } = await supabaseAdmin
       .from("team_members")

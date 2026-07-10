@@ -1,22 +1,21 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSupabaseSession } from "@/hooks/use-supabase-session";
 import { useAdminRoles } from "@/hooks/use-admin-roles";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { setTeamSession, setAdminActing } from "@/lib/team-session";
+import { setAdminActing, setTeamSession } from "@/lib/team-session";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { listActiveTeams, getTeamContextById } from "@/lib/membership.functions";
+import { getMyActiveAdminTeam, getTeamContextById, listActiveTeams, setMyTeam } from "@/lib/membership.functions";
 import { AdminBottomTabBar } from "@/components/admin-bottom-tab-bar";
-import { LogOut, Loader2, Eye } from "lucide-react";
+import { Building2, Loader2, LogOut } from "lucide-react";
 import { useHideOnScroll } from "@/hooks/use-scroll-direction";
 import { useAdminPreferences } from "@/hooks/use-admin-preferences";
 
 export function AdminShell({
   children,
-  /** If true (default), the route is admin-only. Staff users will be redirected. */
   adminOnly = false,
 }: {
   children: ReactNode;
@@ -25,9 +24,7 @@ export function AdminShell({
   const navigate = useNavigate();
   const { session, loading } = useSupabaseSession();
   const { data: roles, loading: rolesLoading } = useAdminRoles();
-  
 
-  // Don't auto-clear team session here: admin uses it for "view shop as".
   useEffect(() => {
     if (!loading && !session) navigate({ to: "/", replace: true });
   }, [loading, session, navigate]);
@@ -39,7 +36,6 @@ export function AdminShell({
     }
   }, [session, rolesLoading, roles, navigate]);
 
-  // Staff trying to access admin-only route → redirect to allowed area
   useEffect(() => {
     if (!session || rolesLoading || !roles) return;
     if (adminOnly && !roles.isAdmin && roles.isStaff) {
@@ -73,6 +69,7 @@ function AdminShellInner({ session, roles, children }: { session: any; roles: an
   const navigate = useNavigate();
   const hidden = useHideOnScroll();
   const { data: preferences } = useAdminPreferences();
+
   useEffect(() => {
     const root = document.documentElement;
     const appearance = preferences?.appearance ?? "system";
@@ -82,6 +79,7 @@ function AdminShellInner({ session, roles, children }: { session: any; roles: an
     root.classList.toggle("reduce-app-motion", !!preferences?.reduced_animations);
     root.classList.toggle("admin-compact", !!preferences?.compact_mode);
   }, [preferences]);
+
   return (
     <div className="min-h-screen bg-secondary/30 admin-surface">
       <header
@@ -92,10 +90,10 @@ function AdminShellInner({ session, roles, children }: { session: any; roles: an
       >
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
           <Link to="/admin" className="font-semibold text-sm tracking-tight">
-            {roles.isAdmin ? "ניהול" : "מחסן"}
+            {roles.isOwner ? "בעלים" : "ניהול יחידה"}
           </Link>
           <div className="flex items-center gap-2 min-w-0">
-            {roles.isAdmin && <ViewShopAsPicker />}
+            {roles.isAdmin && <ActiveUnitPicker />}
             <Button
               variant="ghost"
               size="icon"
@@ -115,35 +113,41 @@ function AdminShellInner({ session, roles, children }: { session: any; roles: an
   );
 }
 
-function ViewShopAsPicker() {
+function ActiveUnitPicker() {
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const listFn = useServerFn(listActiveTeams);
   const ctxFn = useServerFn(getTeamContextById);
+  const setTeamFn = useServerFn(setMyTeam);
+  const activeFn = useServerFn(getMyActiveAdminTeam);
   const { data: teams } = useQuery({ queryKey: ["active-teams"], queryFn: () => listFn() });
+  const { data: activeTeam } = useQuery({ queryKey: ["active-admin-team"], queryFn: () => activeFn() });
 
   async function onPick(teamId: string) {
     try {
+      await setTeamFn({ data: { team_id: teamId } });
       const ctx = await ctxFn({ data: { team_id: teamId } });
-      if (!ctx) return;
-      setTeamSession(ctx);
+      if (ctx) setTeamSession(ctx);
       setAdminActing(true);
-      navigate({ to: "/shop" });
+      await qc.invalidateQueries();
+      navigate({ to: "/admin" });
     } catch (e) {
       console.error(e);
     }
   }
 
   return (
-    <Select onValueChange={onPick}>
-      <SelectTrigger className="h-8 w-[180px] text-xs">
-        <Eye className="w-3.5 h-3.5 ml-1" />
-        <SelectValue placeholder="צפייה כצוות..." />
+    <Select value={activeTeam?.team_id ?? undefined} onValueChange={onPick}>
+      <SelectTrigger className="h-8 w-[190px] text-xs">
+        <Building2 className="w-3.5 h-3.5 ml-1" />
+        <SelectValue placeholder="בחר יחידה" />
       </SelectTrigger>
       <SelectContent>
-        {(teams ?? []).map((t: any) => (
-          <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+        {(teams ?? []).map((team: any) => (
+          <SelectItem key={team.id} value={team.id}>{team.name}</SelectItem>
         ))}
       </SelectContent>
     </Select>
   );
 }
+

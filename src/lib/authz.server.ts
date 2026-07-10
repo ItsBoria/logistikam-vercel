@@ -2,7 +2,7 @@ export type RoleCode = "OWNER" | "WORK_MANAGER" | "ADMIN" | "USER";
 
 export const ROLE_LEVEL: Record<RoleCode, number> = {
   OWNER: 100,
-  WORK_MANAGER: 80,
+  WORK_MANAGER: 50,
   ADMIN: 50,
   USER: 10,
 };
@@ -11,7 +11,7 @@ export const ROLE_LABEL: Record<RoleCode, string> = {
   OWNER: "בעלים",
   WORK_MANAGER: "מנהל עבודה",
   ADMIN: "נגד לוגיסטיקה",
-  USER: "משתמש",
+  USER: "רס״פ",
 };
 
 export async function getUserRole(userId: string): Promise<RoleCode> {
@@ -47,3 +47,4 @@ export async function assertOwner(userId: string) {
   if (role !== "OWNER") throw new Error("פעולה זו זמינה לבעלים בלבד");
   return role;
 }
+

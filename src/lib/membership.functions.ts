@@ -10,6 +10,12 @@ export type TeamContext = {
   contact_phone: string | null;
 } | null;
 
+export type ActiveAdminTeam = {
+  team_id: string;
+  team_name: string;
+  is_owner_scope: boolean;
+} | null;
+
 // Returns the current user's team (or null) including the PIN that the
 // existing shop functions need. Service-role read keeps it simple while RLS
 // is being phased in for the shop tables.
@@ -52,16 +58,48 @@ export const listActiveTeams = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: isAdmin } = await supabaseAdmin
-      .rpc("has_role", { _user_id: context.userId, _role: "admin" });
+    const { getUserRole } = await import("./authz.server");
+    const role = await getUserRole(context.userId);
+    if (role !== "OWNER" && role !== "USER") {
+      const { data: membership } = await supabaseAdmin
+        .from("team_members")
+        .select("team_id, teams(id, name, active)")
+        .eq("user_id", context.userId)
+        .eq("is_active", true)
+        .maybeSingle();
+      const team = (membership as any)?.teams;
+      return membership?.team_id && team?.active ? [{ id: team.id, name: team.name }] : [];
+    }
     let q = supabaseAdmin
       .from("teams")
       .select("id, name, is_admin_only")
       .eq("active", true)
       .order("name");
-    if (!isAdmin) q = q.eq("is_admin_only", false);
+    if (role === "USER") q = q.eq("is_admin_only", false);
     const { data } = await q;
     return (data ?? []).map(({ id, name }) => ({ id, name }));
+  });
+
+export const getMyActiveAdminTeam = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<ActiveAdminTeam> => {
+    const { getUserRole } = await import("./authz.server");
+    const role = await getUserRole(context.userId);
+    if (role === "USER") return null;
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: membership } = await supabaseAdmin
+      .from("team_members")
+      .select("team_id, teams(id, name, active)")
+      .eq("user_id", context.userId)
+      .eq("is_active", true)
+      .maybeSingle();
+    const team = (membership as any)?.teams;
+    if (!membership?.team_id || !team?.active) return null;
+    return {
+      team_id: membership.team_id,
+      team_name: team.name,
+      is_owner_scope: role === "OWNER",
+    };
   });
 
 export const setMyTeam = createServerFn({ method: "POST" })
@@ -69,10 +107,14 @@ export const setMyTeam = createServerFn({ method: "POST" })
   .inputValidator((input) => z.object({ team_id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: isAdmin } = await supabaseAdmin
-      .rpc("has_role", { _user_id: context.userId, _role: "admin" });
+    const { getUserRole } = await import("./authz.server");
+    const role = await getUserRole(context.userId);
+    const isAdmin = role !== "USER";
     const { data: existing } = await supabaseAdmin
       .from("team_members").select("team_id").eq("user_id", context.userId).maybeSingle();
+    if (existing && role !== "OWNER" && isAdmin && existing.team_id !== data.team_id) {
+      throw new Error("רק בעלים יכול להעביר מנהל ליחידה אחרת");
+    }
     if (existing && !isAdmin) {
       throw new Error("הצוות שלך כבר נקבע — פנה למנהל לשינוי");
     }
@@ -82,7 +124,13 @@ export const setMyTeam = createServerFn({ method: "POST" })
     if (t.is_admin_only && !isAdmin) throw new Error("צוות לא תקין");
     const { error } = await supabaseAdmin
       .from("team_members")
-      .upsert({ user_id: context.userId, team_id: data.team_id }, { onConflict: "user_id" });
+      .upsert({
+        user_id: context.userId,
+        team_id: data.team_id,
+        role,
+        is_active: true,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id" });
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -107,7 +155,13 @@ export const setUserTeamAdmin = createServerFn({ method: "POST" })
     if (!t || !t.active) throw new Error("צוות לא תקין");
     const { error } = await supabaseAdmin
       .from("team_members")
-      .upsert({ user_id: data.user_id, team_id: data.team_id }, { onConflict: "user_id" });
+      .upsert({
+        user_id: data.user_id,
+        team_id: data.team_id,
+        role: "ADMIN",
+        is_active: true,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id" });
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -119,9 +173,18 @@ export const getTeamContextById = createServerFn({ method: "POST" })
   .inputValidator((input) => z.object({ team_id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }): Promise<TeamContext> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: isAdmin } = await supabaseAdmin
-      .rpc("has_role", { _user_id: context.userId, _role: "admin" });
-    if (!isAdmin) throw new Error("Forbidden");
+    const { getUserRole } = await import("./authz.server");
+    const role = await getUserRole(context.userId);
+    if (role === "USER") throw new Error("Forbidden");
+    if (role !== "OWNER") {
+      const { data: membership } = await supabaseAdmin
+        .from("team_members")
+        .select("team_id")
+        .eq("user_id", context.userId)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (membership?.team_id !== data.team_id) throw new Error("Forbidden");
+    }
     const { data: t } = await supabaseAdmin
       .from("teams").select("id, name, pin, monthly_limit, contact_phone, active")
       .eq("id", data.team_id).maybeSingle();

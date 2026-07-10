@@ -233,13 +233,17 @@ Defines:
 - `assertMinRole(userId, minimum)`
 - `assertOwner(userId)`
 
-Current global role interpretation:
+Current role model:
 
-- `OWNER`: system owner / highest access
-- `WORK_MANAGER`: high-level admin, below owner
-- `ADMIN`: unit/admin logistics role
-- `USER`: normal user/no admin access
-- legacy `STAFF` is treated like `ADMIN` in some places
+1. `OWNER`: the single global app owner. The owner can see all units in selectors and manage global setup, but operational admin screens still work through a selected active unit.
+2. `WORK_MANAGER` / `ADMIN`: unit admin level. Hebrew labels are מנהל עבודה and נגד לוגיסטיקה. These roles manage the unit they are assigned to.
+3. `USER`: client/RASP level. Hebrew label is רס״פ. This level uses the store/RASP flows and should not manage global/unit admin settings.
+
+Compatibility notes:
+
+- `WORK_MANAGER` and `ADMIN` currently share the same permission level in code.
+- legacy `STAFF` is treated like `ADMIN` in some places.
+- `supabase/migrations/20260710123000_single_owner_active_unit_scope.sql` enforces only one active `OWNER` role.
 
 ### Team membership
 
@@ -249,6 +253,7 @@ Main functions:
 
 - `getMyTeamContext`
 - `listActiveTeams`
+- `getMyActiveAdminTeam`
 - `setMyTeam`
 - `setUserTeamAdmin`
 - `getTeamContextById`
@@ -256,8 +261,12 @@ Main functions:
 Current important limitation:
 
 - `team_members` was originally one team per user (`user_id` primary key).
-- The latest separation pass added team role/is_active fields, but did not fully rebuild multi-membership/team-switching UX.
-- Regular admin scope is currently determined by the active `team_members` row.
+- The latest separation pass added team role/is_active fields and an active-unit selector in the admin header.
+- Regular admin scope is determined by the active `team_members` row.
+- Owner also selects an active unit before viewing or editing operational unit data. This prevents mixed global product/inventory/order views.
+- Only `OWNER` can see all units in the admin unit selector.
+- Unit admins (`WORK_MANAGER` / `ADMIN`) only see their assigned unit and cannot move themselves to another unit.
+- The current selector changes the user's single `team_members` row. It is an active-unit selector, not full multi-membership yet.
 
 If implementing true multi-unit user membership, expect to change:
 
@@ -672,6 +681,13 @@ b624482 Separate unit catalogs and inventory
 
 That commit added the first safe layer of unit separation for products/categories/replacement inventory.
 
+Follow-up role/unit-scope work added:
+
+- A single active owner constraint through `20260710123000_single_owner_active_unit_scope.sql`.
+- Hebrew role labels aligned to בעלים, מנהל עבודה, נגד לוגיסטיקה, and רס״פ.
+- An admin-header active unit selector.
+- Owner/admin operational data now requires a selected active unit instead of silently showing broad mixed data.
+
 ## Known gaps / future architecture work
 
 These are intentionally not fully solved yet:
@@ -680,13 +696,14 @@ These are intentionally not fully solved yet:
    - Current `team_members` legacy shape is still effectively one active team per user.
    - Needs schema + UX + server-function changes.
 
-2. Explicit active-unit switcher for owner/work-manager.
-   - Current write fallback may choose the first active team if a high-level admin has no membership.
-   - Better future UX: owner/work-manager chooses active unit before product/inventory writes.
+2. Full multi-membership active-unit switcher.
+   - A basic active-unit selector exists in the admin header.
+   - It currently changes the user's single `team_members` row.
+   - Future UX should allow one owner/admin account to belong to multiple units without overwriting membership history.
 
 3. Dashboard KPI scoping.
    - Regular admin views are being scoped.
-   - Owner/work-manager dashboard should eventually support unit filter/global mode clearly.
+   - Owner/admin dashboard should eventually show a clear selected-unit mode and, where useful, an explicit all-units overview.
 
 4. Full tenant isolation test suite.
    - Build passes, but dedicated tenant-isolation tests should be added.
@@ -757,4 +774,3 @@ CODEBASE_GUIDE.md update check:
 ```
 
 Do not leave this guide stale. It exists so the next agent can work faster and safer.
-
