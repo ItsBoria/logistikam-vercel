@@ -1,8 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
+import { assertMinRole, assertOwner } from "./authz.server";
 
-const BOOTSTRAP_EMAIL = "davidpanasik@hotmail.com";
 const BUCKET = "product-images";
 const SIGN_TTL = 60 * 60 * 24 * 7;
 
@@ -16,61 +16,13 @@ async function resolveImage(supabaseAdmin: any, url: string | null | undefined):
   return url;
 }
 
-// ---- Bootstrap (callable without auth) ----
-export const bootstrapAdminStatus = createServerFn({ method: "GET" })
-  .handler(async () => {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { count } = await supabaseAdmin
-      .from("user_roles").select("*", { count: "exact", head: true }).eq("role", "admin");
-    return { needsBootstrap: (count ?? 0) === 0, email: BOOTSTRAP_EMAIL };
-  });
-
-export const bootstrapAdmin = createServerFn({ method: "POST" })
-  .inputValidator((input) => z.object({
-    email: z.string().email(),
-    password: z.string().min(8).max(72),
-  }).parse(input))
-  .handler(async ({ data }) => {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    if (data.email.toLowerCase() !== BOOTSTRAP_EMAIL) {
-      throw new Error("רק כתובת האימייל המורשית יכולה לאתחל מנהל");
-    }
-    const { count } = await supabaseAdmin
-      .from("user_roles").select("*", { count: "exact", head: true }).eq("role", "admin");
-    if ((count ?? 0) > 0) throw new Error("מנהל ראשי כבר קיים");
-
-    // Try to find an existing user with this email
-    const { data: list } = await supabaseAdmin.auth.admin.listUsers();
-    const existing = list.users.find(u => u.email?.toLowerCase() === data.email.toLowerCase());
-    let userId: string;
-    if (existing) {
-      userId = existing.id;
-      await supabaseAdmin.auth.admin.updateUserById(userId, { password: data.password, email_confirm: true });
-    } else {
-      const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
-        email: data.email, password: data.password, email_confirm: true,
-      });
-      if (error || !created.user) throw new Error(error?.message || "שגיאה ביצירת משתמש");
-      userId = created.user.id;
-    }
-    const { error: roleErr } = await supabaseAdmin.from("user_roles").insert({ user_id: userId, role: "admin" });
-    if (roleErr) throw new Error(roleErr.message);
-    return { ok: true };
-  });
-
 // ---- Authenticated admin helpers ----
 async function assertAdmin(userId: string) {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data } = await supabaseAdmin.from("user_roles")
-    .select("id").eq("user_id", userId).eq("role", "admin").maybeSingle();
-  if (!data) throw new Error("גישה לאדמין בלבד");
+  return assertMinRole(userId, "ADMIN");
 }
 
 async function assertAdminOrStaff(userId: string) {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data } = await supabaseAdmin.from("user_roles")
-    .select("role").eq("user_id", userId).in("role", ["admin", "staff"]);
-  if (!data || data.length === 0) throw new Error("גישה מורשית בלבד");
+  return assertMinRole(userId, "ADMIN");
 }
 
 // Low-stock check + admin push notification. Best-effort.
@@ -100,12 +52,13 @@ async function maybeNotifyLowStock(supabaseAdmin: any, productId: string, prevSt
 export const listAdminUsers = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    await assertAdmin(context.userId);
+    await assertOwner(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: roles } = await supabaseAdmin
       .from("user_roles")
       .select("user_id, role, created_at")
-      .in("role", ["admin", "staff"]);
+      .eq("is_active", true)
+      .in("role", ["OWNER", "WORK_MANAGER", "ADMIN"]);
     const { data: list } = await supabaseAdmin.auth.admin.listUsers();
     const userIds = Array.from(new Set((roles ?? []).map((r: any) => r.user_id)));
     const { data: profs } = userIds.length
@@ -126,9 +79,13 @@ export const listAdminUsers = createServerFn({ method: "GET" })
         user_id: userId,
         email: u?.email ?? "(לא ידוע)",
         username: (u?.user_metadata as any)?.username ?? null,
-        roles: info.roles as ("admin" | "staff")[],
-        is_admin: info.roles.includes("admin"),
-        is_staff: info.roles.includes("staff"),
+        roles: info.roles as ("OWNER" | "WORK_MANAGER" | "ADMIN")[],
+        current_role: info.roles.sort((a, b) => {
+          const level: Record<string, number> = { OWNER: 100, WORK_MANAGER: 80, ADMIN: 50 };
+          return (level[b] ?? 0) - (level[a] ?? 0);
+        })[0] ?? "USER",
+        is_admin: info.roles.length > 0,
+        is_staff: false,
         is_approver: approverMap.get(userId) ?? false,
         created_at: info.created_at,
       };
@@ -141,10 +98,10 @@ export const createAdminUser = createServerFn({ method: "POST" })
     email: z.string().email(),
     username: z.string().min(2).max(40).regex(/^[a-zA-Z0-9_.-]+$/, "שם משתמש לא תקין"),
     password: z.string().min(8).max(72),
-    role: z.enum(["admin", "staff"]).default("admin"),
+    role: z.enum(["WORK_MANAGER", "ADMIN"]).default("ADMIN"),
   }).parse(input))
   .handler(async ({ data, context }) => {
-    await assertAdmin(context.userId);
+    await assertOwner(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const usernameLower = data.username.trim().toLowerCase();
     const { data: list } = await supabaseAdmin.auth.admin.listUsers();
@@ -172,10 +129,16 @@ export const createAdminUser = createServerFn({ method: "POST" })
         user_metadata: { username: usernameLower },
       });
     }
-    await supabaseAdmin.from("user_roles").upsert({ user_id: userId, role: data.role }, { onConflict: "user_id,role" });
+    const { error: roleError } = await (context.supabase as any).rpc("owner_set_user_role", {
+      _target_user_id: userId,
+      _role: data.role,
+      _active: true,
+      _reason: "Created through user management",
+    });
+    if (roleError) throw new Error(roleError.message);
 
     // Default notification prefs ON for new admin users
-    if (data.role === "admin") {
+    if (data.role === "ADMIN" || data.role === "WORK_MANAGER") {
       const events = ["order_created", "order_awaiting_approval", "low_stock", "replacement_request"];
       await supabaseAdmin.from("admin_notification_prefs").upsert(
         events.map((e) => ({ user_id: userId!, event_type: e, enabled: true })),
@@ -189,20 +152,20 @@ export const updateAdminUserRole = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input) => z.object({
     user_id: z.string().uuid(),
-    role: z.enum(["admin", "staff", "customer"]),
+    role: z.enum(["WORK_MANAGER", "ADMIN", "USER"]),
   }).parse(input))
   .handler(async ({ data, context }) => {
-    await assertAdmin(context.userId);
-    if (data.user_id === context.userId && data.role !== "admin") {
+    await assertOwner(context.userId);
+    if (data.user_id === context.userId) {
       throw new Error("לא ניתן לשנות את התפקיד של עצמך");
     }
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    // Remove other admin/staff roles
-    await supabaseAdmin.from("user_roles").delete()
-      .eq("user_id", data.user_id).in("role", ["admin", "staff"]);
-    if (data.role === "customer") return { ok: true };
-    const { error } = await supabaseAdmin.from("user_roles")
-      .insert({ user_id: data.user_id, role: data.role });
+    const { error } = await (context.supabase as any).rpc("owner_set_user_role", {
+      _target_user_id: data.user_id,
+      _role: data.role,
+      _active: true,
+      _reason: "Role changed through user management",
+    });
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -211,15 +174,17 @@ export const searchRegisteredUsers = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input) => z.object({ query: z.string().max(200).optional().default("") }).parse(input))
   .handler(async ({ data, context }) => {
-    await assertAdmin(context.userId);
+    await assertOwner(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: list } = await supabaseAdmin.auth.admin.listUsers({ perPage: 200 });
     const { data: roles } = await supabaseAdmin
-      .from("user_roles").select("user_id, role").in("role", ["admin", "staff"]);
-    const roleByUser = new Map<string, "admin" | "staff">();
+      .from("user_roles").select("user_id, role").eq("is_active", true)
+      .in("role", ["OWNER", "WORK_MANAGER", "ADMIN"]);
+    const roleByUser = new Map<string, "OWNER" | "WORK_MANAGER" | "ADMIN">();
     for (const r of (roles ?? []) as any[]) {
       const cur = roleByUser.get(r.user_id);
-      if (r.role === "admin" || !cur) roleByUser.set(r.user_id, r.role);
+      const level: Record<string, number> = { OWNER: 100, WORK_MANAGER: 80, ADMIN: 50 };
+      if (!cur || level[r.role] > level[cur]) roleByUser.set(r.user_id, r.role);
     }
     const ids = list.users.map(u => u.id);
     const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
@@ -245,7 +210,7 @@ export const searchRegisteredUsers = createServerFn({ method: "POST" })
         email: u.email ?? "",
         displayName: displayName as string,
         provider: provider as string,
-        currentRole: (roleByUser.get(u.id) ?? "customer") as "admin" | "staff" | "customer",
+        currentRole: (roleByUser.get(u.id) ?? "USER") as "OWNER" | "WORK_MANAGER" | "ADMIN" | "USER",
         team_id: teamId,
         team_name: teamId ? (teamNameById.get(teamId) ?? null) : null,
         created_at: u.created_at,
@@ -263,11 +228,26 @@ export const deleteAdminUser = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input) => z.object({ user_id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
-    await assertAdmin(context.userId);
+    await assertOwner(context.userId);
     if (data.user_id === context.userId) throw new Error("לא ניתן למחוק את עצמך");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    await supabaseAdmin.from("user_roles").delete().eq("user_id", data.user_id).in("role", ["admin", "staff"]);
-    await supabaseAdmin.auth.admin.deleteUser(data.user_id);
+    const { data: targetRole } = await (supabaseAdmin as any).rpc("current_role_code", { _user_id: data.user_id });
+    if (targetRole === "OWNER") throw new Error("לא ניתן להשבית את חשבון הבעלים");
+    await supabaseAdmin.from("profiles").update({
+      is_active: false,
+      deactivated_at: new Date().toISOString(),
+      deactivated_by: context.userId,
+    }).eq("id", data.user_id);
+    await supabaseAdmin.from("user_roles").update({ is_active: false }).eq("user_id", data.user_id);
+    await supabaseAdmin.auth.admin.updateUserById(data.user_id, { ban_duration: "876000h" });
+    await (supabaseAdmin as any).from("audit_log").insert({
+      action_type: "USER_DEACTIVATED",
+      target_type: "user",
+      target_id: data.user_id,
+      performed_by_user_id: context.userId,
+      performer_role: "OWNER",
+      new_value: { is_active: false },
+    });
     return { ok: true };
   });
 
@@ -275,7 +255,7 @@ export const deleteAdminUser = createServerFn({ method: "POST" })
 export const listTeams = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    await assertAdmin(context.userId);
+    await assertMinRole(context.userId, "WORK_MANAGER");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: teams } = await supabaseAdmin.from("teams").select("*").order("created_at", { ascending: false });
     const withSpent = await Promise.all((teams ?? []).map(async (t) => {
@@ -306,7 +286,7 @@ export const upsertTeam = createServerFn({ method: "POST" })
     active: z.boolean(),
   }).parse(input))
   .handler(async ({ data, context }) => {
-    await assertAdmin(context.userId);
+    await assertMinRole(context.userId, "WORK_MANAGER");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     if (data.id) {
       const { error } = await supabaseAdmin.from("teams").update({
@@ -328,7 +308,7 @@ export const deleteTeam = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
-    await assertAdmin(context.userId);
+    await assertMinRole(context.userId, "WORK_MANAGER");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { error } = await supabaseAdmin.from("teams").delete().eq("id", data.id);
     if (error) throw new Error(error.message);
@@ -384,11 +364,49 @@ const productSchema = z.object({
   description: z.string().max(2000).optional().nullable(),
   price: z.number().min(0).max(10_000_000),
   stock: z.number().int().min(0).max(10_000_000),
-  category: z.string().max(100).optional().nullable(),
+  category_id: z.string().uuid(),
+  item_code: z.string().trim().max(50).optional().nullable(),
+  unit_of_measure: z.string().trim().min(1).max(50).default("יחידה"),
+  can_be_ordered: z.boolean().default(true),
+  can_be_replacement: z.boolean().default(true),
+  maximum_quantity: z.number().int().min(1).max(1_000_000).optional().nullable(),
   image_url: imageUrlSchema,
   active: z.boolean(),
   low_stock_threshold: z.number().int().min(0).max(10_000_000).nullable().optional(),
 });
+
+export const listItemCategoriesAdmin = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdminOrStaff(context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data, error } = await (supabaseAdmin as any)
+      .from("item_categories").select("*").order("display_order").order("name");
+    if (error && error.code !== "42P01") throw new Error(error.message);
+    return data ?? [];
+  });
+
+export const upsertItemCategory = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({
+    id: z.string().uuid().optional(),
+    code: z.string().trim().regex(/^[A-Za-z0-9_-]{1,50}$/),
+    name: z.string().trim().min(1).max(100),
+    description: z.string().trim().max(500).optional().nullable(),
+    is_active: z.boolean(),
+    display_order: z.number().int().min(0).max(10000),
+    color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional().nullable(),
+  }).parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const query = data.id
+      ? (supabaseAdmin as any).from("item_categories").update(data).eq("id", data.id)
+      : (supabaseAdmin as any).from("item_categories").insert(data);
+    const { error } = await query;
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
 
 // ---- App settings ----
 export const getAppSettings = createServerFn({ method: "GET" })
@@ -423,12 +441,15 @@ export const upsertProduct = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const payload = { ...data, image_url: data.image_url || null };
+    const { data: category } = await (supabaseAdmin as any)
+      .from("item_categories").select("id, name").eq("id", data.category_id).maybeSingle();
+    if (!category) throw new Error("יש לבחור קטגוריה מאושרת");
+    const payload = { ...data, category: category.name, image_url: data.image_url || null };
     if (data.id) {
-      const { error } = await supabaseAdmin.from("products").update(payload).eq("id", data.id);
+      const { error } = await (supabaseAdmin as any).from("products").update(payload).eq("id", data.id);
       if (error) throw new Error(error.message);
     } else {
-      const { error } = await supabaseAdmin.from("products").insert(payload);
+      const { error } = await (supabaseAdmin as any).from("products").insert(payload);
       if (error) throw new Error(error.message);
     }
     return { ok: true };
@@ -481,14 +502,24 @@ export const bulkImportProducts = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const payload = data.rows.map(r => ({
-      name: r.name, description: r.description ?? null,
-      price: r.price, stock: r.stock,
-      category: r.category ?? null,
-      image_url: r.image_url || null,
-      active: true,
-    }));
-    const { error } = await supabaseAdmin.from("products").insert(payload);
+    const { data: categories } = await (supabaseAdmin as any)
+      .from("item_categories").select("id, name").eq("is_active", true);
+    const byName = new Map<string, any>((categories ?? []).map((category: any) => [category.name.trim().toLowerCase(), category]));
+    const payload = data.rows.map((r) => {
+      const category = byName.get((r.category ?? "").trim().toLowerCase());
+      if (!category) throw new Error(`הקטגוריה "${r.category ?? ""}" אינה קיימת או אינה פעילה`);
+      return {
+        name: r.name, description: r.description ?? null,
+        price: r.price, stock: r.stock,
+        category: category.name,
+        category_id: category.id,
+        image_url: r.image_url || null,
+        active: true,
+        can_be_ordered: true,
+        can_be_replacement: true,
+      };
+    });
+    const { error } = await (supabaseAdmin as any).from("products").insert(payload);
     if (error) throw new Error(error.message);
     return { inserted: payload.length };
   });

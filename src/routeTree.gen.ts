@@ -15,6 +15,7 @@ import { Route as ShopIndexRouteImport } from './routes/shop.index'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as ShopReplacementsRouteImport } from './routes/shop.replacements'
 import { Route as ShopOrdersRouteImport } from './routes/shop.orders'
+import { Route as ShopDashboardRouteImport } from './routes/shop.dashboard'
 import { Route as AdminUsersRouteImport } from './routes/admin.users'
 import { Route as AdminTeamsRouteImport } from './routes/admin.teams'
 import { Route as AdminStockRouteImport } from './routes/admin.stock'
@@ -25,6 +26,7 @@ import { Route as AdminOrdersRouteImport } from './routes/admin.orders'
 import { Route as AdminNotificationsRouteImport } from './routes/admin.notifications'
 import { Route as AdminLoginRouteImport } from './routes/admin.login'
 import { Route as AdminCalendarRouteImport } from './routes/admin.calendar'
+import { Route as AdminBudgetsRouteImport } from './routes/admin.budgets'
 
 const SelectTeamRoute = SelectTeamRouteImport.update({
   id: '/select-team',
@@ -54,6 +56,11 @@ const ShopReplacementsRoute = ShopReplacementsRouteImport.update({
 const ShopOrdersRoute = ShopOrdersRouteImport.update({
   id: '/shop/orders',
   path: '/shop/orders',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ShopDashboardRoute = ShopDashboardRouteImport.update({
+  id: '/shop/dashboard',
+  path: '/shop/dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminUsersRoute = AdminUsersRouteImport.update({
@@ -107,10 +114,16 @@ const AdminCalendarRoute = AdminCalendarRouteImport.update({
   path: '/admin/calendar',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminBudgetsRoute = AdminBudgetsRouteImport.update({
+  id: '/admin/budgets',
+  path: '/admin/budgets',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/select-team': typeof SelectTeamRoute
+  '/admin/budgets': typeof AdminBudgetsRoute
   '/admin/calendar': typeof AdminCalendarRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/notifications': typeof AdminNotificationsRoute
@@ -121,6 +134,7 @@ export interface FileRoutesByFullPath {
   '/admin/stock': typeof AdminStockRoute
   '/admin/teams': typeof AdminTeamsRoute
   '/admin/users': typeof AdminUsersRoute
+  '/shop/dashboard': typeof ShopDashboardRoute
   '/shop/orders': typeof ShopOrdersRoute
   '/shop/replacements': typeof ShopReplacementsRoute
   '/admin/': typeof AdminIndexRoute
@@ -129,6 +143,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/select-team': typeof SelectTeamRoute
+  '/admin/budgets': typeof AdminBudgetsRoute
   '/admin/calendar': typeof AdminCalendarRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/notifications': typeof AdminNotificationsRoute
@@ -139,6 +154,7 @@ export interface FileRoutesByTo {
   '/admin/stock': typeof AdminStockRoute
   '/admin/teams': typeof AdminTeamsRoute
   '/admin/users': typeof AdminUsersRoute
+  '/shop/dashboard': typeof ShopDashboardRoute
   '/shop/orders': typeof ShopOrdersRoute
   '/shop/replacements': typeof ShopReplacementsRoute
   '/admin': typeof AdminIndexRoute
@@ -148,6 +164,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/select-team': typeof SelectTeamRoute
+  '/admin/budgets': typeof AdminBudgetsRoute
   '/admin/calendar': typeof AdminCalendarRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/notifications': typeof AdminNotificationsRoute
@@ -158,6 +175,7 @@ export interface FileRoutesById {
   '/admin/stock': typeof AdminStockRoute
   '/admin/teams': typeof AdminTeamsRoute
   '/admin/users': typeof AdminUsersRoute
+  '/shop/dashboard': typeof ShopDashboardRoute
   '/shop/orders': typeof ShopOrdersRoute
   '/shop/replacements': typeof ShopReplacementsRoute
   '/admin/': typeof AdminIndexRoute
@@ -168,6 +186,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/select-team'
+    | '/admin/budgets'
     | '/admin/calendar'
     | '/admin/login'
     | '/admin/notifications'
@@ -178,6 +197,7 @@ export interface FileRouteTypes {
     | '/admin/stock'
     | '/admin/teams'
     | '/admin/users'
+    | '/shop/dashboard'
     | '/shop/orders'
     | '/shop/replacements'
     | '/admin/'
@@ -186,6 +206,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/select-team'
+    | '/admin/budgets'
     | '/admin/calendar'
     | '/admin/login'
     | '/admin/notifications'
@@ -196,6 +217,7 @@ export interface FileRouteTypes {
     | '/admin/stock'
     | '/admin/teams'
     | '/admin/users'
+    | '/shop/dashboard'
     | '/shop/orders'
     | '/shop/replacements'
     | '/admin'
@@ -204,6 +226,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/select-team'
+    | '/admin/budgets'
     | '/admin/calendar'
     | '/admin/login'
     | '/admin/notifications'
@@ -214,6 +237,7 @@ export interface FileRouteTypes {
     | '/admin/stock'
     | '/admin/teams'
     | '/admin/users'
+    | '/shop/dashboard'
     | '/shop/orders'
     | '/shop/replacements'
     | '/admin/'
@@ -223,6 +247,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SelectTeamRoute: typeof SelectTeamRoute
+  AdminBudgetsRoute: typeof AdminBudgetsRoute
   AdminCalendarRoute: typeof AdminCalendarRoute
   AdminLoginRoute: typeof AdminLoginRoute
   AdminNotificationsRoute: typeof AdminNotificationsRoute
@@ -233,6 +258,7 @@ export interface RootRouteChildren {
   AdminStockRoute: typeof AdminStockRoute
   AdminTeamsRoute: typeof AdminTeamsRoute
   AdminUsersRoute: typeof AdminUsersRoute
+  ShopDashboardRoute: typeof ShopDashboardRoute
   ShopOrdersRoute: typeof ShopOrdersRoute
   ShopReplacementsRoute: typeof ShopReplacementsRoute
   AdminIndexRoute: typeof AdminIndexRoute
@@ -281,6 +307,13 @@ declare module '@tanstack/react-router' {
       path: '/shop/orders'
       fullPath: '/shop/orders'
       preLoaderRoute: typeof ShopOrdersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/shop/dashboard': {
+      id: '/shop/dashboard'
+      path: '/shop/dashboard'
+      fullPath: '/shop/dashboard'
+      preLoaderRoute: typeof ShopDashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/users': {
@@ -353,12 +386,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCalendarRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/budgets': {
+      id: '/admin/budgets'
+      path: '/admin/budgets'
+      fullPath: '/admin/budgets'
+      preLoaderRoute: typeof AdminBudgetsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SelectTeamRoute: SelectTeamRoute,
+  AdminBudgetsRoute: AdminBudgetsRoute,
   AdminCalendarRoute: AdminCalendarRoute,
   AdminLoginRoute: AdminLoginRoute,
   AdminNotificationsRoute: AdminNotificationsRoute,
@@ -369,6 +410,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminStockRoute: AdminStockRoute,
   AdminTeamsRoute: AdminTeamsRoute,
   AdminUsersRoute: AdminUsersRoute,
+  ShopDashboardRoute: ShopDashboardRoute,
   ShopOrdersRoute: ShopOrdersRoute,
   ShopReplacementsRoute: ShopReplacementsRoute,
   AdminIndexRoute: AdminIndexRoute,

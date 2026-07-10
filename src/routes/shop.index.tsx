@@ -84,7 +84,7 @@ function Shop() {
 
   // search/filter
   const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("all");
+  const [category, setCategory] = useState("");
   const [inStockOnly, setInStockOnly] = useState(false);
 
 
@@ -100,7 +100,7 @@ function Shop() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return products.filter((p: any) => {
-      if (category !== "all" && p.category !== category) return false;
+      if (category && category !== "all" && p.category !== category) return false;
       if (inStockOnly && p.stock <= 0) return false;
       if (q && !(`${p.name} ${p.description ?? ""}`.toLowerCase().includes(q))) return false;
       return true;
@@ -172,9 +172,9 @@ function Shop() {
           />
           {categories.length > 0 && (
             <Select value={category} onValueChange={setCategory}>
-              <SelectTrigger className="sm:w-48"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="sm:w-48"><SelectValue placeholder="בחר קטגוריית פריט" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">כל הקטגוריות</SelectItem>
+                <SelectItem value="all">הצג הכול</SelectItem>
                 {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
               </SelectContent>
             </Select>
@@ -183,16 +183,23 @@ function Shop() {
             <Switch checked={inStockOnly} onCheckedChange={setInStockOnly} />
             במלאי בלבד
           </label>
+          {(search || category || inStockOnly) && (
+            <Button variant="outline" onClick={() => { setSearch(""); setCategory(""); setInStockOnly(false); }}>
+              נקה סינון
+            </Button>
+          )}
         </Card>
 
         {filtered.length === 0 ? (
-          <Card className="p-12 text-center text-muted-foreground">לא נמצאו מוצרים</Card>
+          <Card className="p-12 text-center text-muted-foreground">
+            {category ? "לא נמצאו פריטים פעילים בקטגוריה זו" : "יש לבחור קטגוריית פריט כדי להציג את הקטלוג המאושר"}
+          </Card>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div key={`${category}-${search}-${inStockOnly}`} className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 admin-stagger">
             {filtered.map((p: any) => {
               const qty = cart[p.id] || 0;
               return (
-                <Card key={p.id} className="overflow-hidden flex flex-col">
+                <Card key={p.id} className="overflow-hidden flex flex-col store-product-card">
                   <div className="aspect-square bg-muted relative">
                     {p.image_url
                       ? <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
