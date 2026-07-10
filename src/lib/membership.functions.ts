@@ -285,7 +285,46 @@ export const setMyTeam = createServerFn({ method: "POST" })
   });
 
 // Legacy-compatible name. It now returns Teams only from the selected Unit.
-export const listActiveTeams = listTeamsForActiveUnit;
+// Keep this as its own server function instead of aliasing another server function;
+// TanStack's server-function transform can produce runtime TDZ errors for aliases.
+export const listActiveTeams = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const active = await assertActiveUnit(supabaseAdmin, context.userId);
+
+    if (UNIT_ADMIN_ROLES.has(active.role)) {
+      const { data } = await supabaseAdmin
+        .from("teams")
+        .select("id, name, monthly_limit, active, is_admin_only")
+        .eq("unit_id", active.unitId)
+        .eq("active", true)
+        .order("name");
+      return (data ?? []).map((team: any) => ({
+        id: team.id,
+        name: team.name,
+        monthly_limit: Number(team.monthly_limit ?? 0),
+        role: active.role,
+      }));
+    }
+
+    const { data } = await supabaseAdmin
+      .from("team_memberships")
+      .select("role, teams(id, name, monthly_limit, active, unit_id)")
+      .eq("user_id", context.userId)
+      .eq("unit_id", active.unitId)
+      .eq("is_active", true);
+
+    return (data ?? [])
+      .map((row: any) => ({ row, team: row.teams }))
+      .filter(({ team }: any) => team?.active && team.unit_id === active.unitId)
+      .map(({ row, team }: any) => ({
+        id: team.id,
+        name: team.name,
+        monthly_limit: Number(team.monthly_limit ?? 0),
+        role: row.role,
+      }));
+  });
 
 export const getMyTeamContext = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])

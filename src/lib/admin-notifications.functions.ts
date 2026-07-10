@@ -1,7 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
-import { assertMinRole, getUserRole } from "./authz.server";
 
 export const ADMIN_EVENT_TYPES = [
   "order_created", "order_awaiting_approval", "order_approved", "order_rejected",
@@ -14,8 +13,35 @@ const EVENT_TYPES = ADMIN_EVENT_TYPES;
 const eventTypeSchema = z.enum(EVENT_TYPES);
 const channelSchema = z.enum(["in_app_enabled", "push_enabled", "email_enabled"]);
 
+type LocalRoleCode = "OWNER" | "WORK_MANAGER" | "ADMIN" | "USER";
+
+async function getLocalUserRole(userId: string): Promise<LocalRoleCode> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data, error } = await supabaseAdmin
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", userId)
+    .eq("is_active", true);
+  if (error) throw new Error(error.message);
+  const level: Record<LocalRoleCode, number> = { OWNER: 100, WORK_MANAGER: 50, ADMIN: 50, USER: 10 };
+  let highest: LocalRoleCode = "USER";
+  for (const row of data ?? []) {
+    const raw = String((row as any).role || "").toUpperCase();
+    const role: LocalRoleCode =
+      raw === "OWNER" ? "OWNER" :
+      raw === "WORK_MANAGER" ? "WORK_MANAGER" :
+      raw === "ADMIN" || raw === "STAFF" ? "ADMIN" :
+      "USER";
+    if (level[role] > level[highest]) highest = role;
+  }
+  return highest;
+}
+
 async function assertAdminOrStaff(userId: string) {
-  return assertMinRole(userId, "ADMIN");
+  const role = await getLocalUserRole(userId);
+  const level: Record<LocalRoleCode, number> = { OWNER: 100, WORK_MANAGER: 50, ADMIN: 50, USER: 10 };
+  if (level[role] < level.ADMIN) throw new Error("אין הרשאה לפעולה זו");
+  return role;
 }
 
 export const getMyNotificationPrefs = createServerFn({ method: "GET" })
@@ -168,7 +194,7 @@ export const getMyAdminRoles = createServerFn({ method: "GET" })
         canResetBudgets: false, canSignCalendar: false, hasAccess: false,
       };
     }
-    const role = await getUserRole(context.userId);
+    const role = await getLocalUserRole(context.userId);
     return {
       roles: role === "USER" ? [] : [role],
       role,
