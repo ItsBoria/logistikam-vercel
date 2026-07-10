@@ -20,13 +20,52 @@ async function assertAdmin(userId: string) {
   return assertMinRole(userId, "ADMIN");
 }
 
+async function getAdminTeamScope(supabaseAdmin: any, userId: string, mode: "read" | "write" = "read") {
+  const role = await assertAdmin(userId);
+  if (role === "ADMIN") {
+    const { data: membership } = await supabaseAdmin
+      .from("team_members")
+      .select("team_id")
+      .eq("user_id", userId)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (!membership?.team_id) throw new Error("לא משויך לך צוות פעיל. בעל מערכת צריך לשייך אותך ליחידה.");
+    return membership.team_id as string;
+  }
+
+  if (mode === "write") {
+    const { data: membership } = await supabaseAdmin
+      .from("team_members")
+      .select("team_id")
+      .eq("user_id", userId)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (membership?.team_id) return membership.team_id as string;
+    const { data: firstTeam } = await supabaseAdmin
+      .from("teams")
+      .select("id")
+      .eq("active", true)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (!firstTeam?.id) throw new Error("צריך ליצור יחידה לפני הוספת פריטים.");
+    return firstTeam.id as string;
+  }
+
+  return null;
+}
+
+function scopeByTeam(query: any, teamId: string | null) {
+  return teamId ? query.eq("team_id", teamId) : query;
+}
+
 // ---- Replacement products (admin inventory) ----
 export const listReplacementProducts = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    await assertAdmin(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data } = await supabaseAdmin.from("replacement_products").select("*").order("name");
+    const teamId = await getAdminTeamScope(supabaseAdmin, context.userId, "read");
+    const { data } = await scopeByTeam(supabaseAdmin.from("replacement_products").select("*"), teamId).order("name");
     return Promise.all((data ?? []).map(async (p: any) => ({
       ...p,
       image_url: await resolveImage(supabaseAdmin, p.image_url),
@@ -56,9 +95,10 @@ export const upsertReplacementProduct = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const payload = { ...data, image_url: data.image_url || null };
+    const teamId = await getAdminTeamScope(supabaseAdmin, context.userId, "write");
+    const payload = { ...data, team_id: teamId, image_url: data.image_url || null };
     if (data.id) {
-      const { error } = await supabaseAdmin.from("replacement_products").update(payload).eq("id", data.id);
+      const { error } = await scopeByTeam(supabaseAdmin.from("replacement_products").update(payload).eq("id", data.id), teamId);
       if (error) throw new Error(error.message);
     } else {
       const { error } = await supabaseAdmin.from("replacement_products").insert(payload);
@@ -73,7 +113,8 @@ export const deleteReplacementProduct = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { error } = await supabaseAdmin.from("replacement_products").delete().eq("id", data.id);
+    const teamId = await getAdminTeamScope(supabaseAdmin, context.userId, "write");
+    const { error } = await scopeByTeam(supabaseAdmin.from("replacement_products").delete().eq("id", data.id), teamId);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -91,15 +132,18 @@ export const adjustReplacementStock = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const teamId = await getAdminTeamScope(supabaseAdmin, context.userId, "write");
     const { data: p } = await supabaseAdmin
-      .from("replacement_products").select("takin_stock, balai_stock").eq("id", data.id).maybeSingle();
+      .from("replacement_products").select("takin_stock, balai_stock, team_id").eq("id", data.id).maybeSingle();
     if (!p) throw new Error("פריט לא נמצא");
     const newTakin = Math.max(0, p.takin_stock + data.takin_delta);
+    if (teamId && p.team_id !== teamId) throw new Error("אין הרשאה לעדכן מלאי של יחידה אחרת");
     const newBalai = Math.max(0, p.balai_stock + data.balai_delta);
     const { error } = await supabaseAdmin
       .from("replacement_products")
       .update({ takin_stock: newTakin, balai_stock: newBalai })
-      .eq("id", data.id);
+      .eq("id", data.id)
+      .eq("team_id", p.team_id);
     if (error) throw new Error(error.message);
     return { ok: true, takin_stock: newTakin, balai_stock: newBalai };
   });
@@ -119,6 +163,7 @@ export const bulkImportReplacementProducts = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const teamId = await getAdminTeamScope(supabaseAdmin, context.userId, "write");
     const payload = data.rows.map((r) => ({
       name: r.name,
       description: r.description ?? null,
@@ -126,6 +171,7 @@ export const bulkImportReplacementProducts = createServerFn({ method: "POST" })
       image_url: r.image_url || null,
       takin_stock: r.takin_stock,
       balai_stock: r.balai_stock,
+      team_id: teamId,
       active: true,
     }));
     const { error } = await supabaseAdmin.from("replacement_products").insert(payload);
@@ -140,12 +186,13 @@ export const listReplacementRequests = createServerFn({ method: "POST" })
     z.object({ status: z.enum(["preparing","ready","done","cancelled"]).nullable().optional() }).parse(input)
   )
   .handler(async ({ data, context }) => {
-    await assertAdmin(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const teamId = await getAdminTeamScope(supabaseAdmin, context.userId, "read");
     let q = supabaseAdmin
       .from("replacement_requests")
       .select("*, teams(name), replacement_request_items(*)")
       .order("created_at", { ascending: false });
+    if (teamId) q = q.eq("team_id", teamId);
     if (data.status) q = q.eq("status", data.status);
     const { data: rows, error } = await q;
     if (error) throw new Error(error.message);

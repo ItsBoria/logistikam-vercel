@@ -46,6 +46,7 @@ export const getShopData = createServerFn({ method: "POST" })
     const [{ data: products }, { data: spent }, { data: period }] = await Promise.all([
       (supabaseAdmin as any).from("products")
         .select("*, item_categories(id, name, code, color, is_active)")
+        .eq("team_id", team.id)
         .eq("active", true).eq("can_be_ordered", true)
         .eq("item_categories.is_active", true).order("name"),
       supabaseAdmin.rpc("team_month_spent", { _team_id: team.id }),
@@ -109,6 +110,7 @@ export const placeOrder = createServerFn({ method: "POST" })
     const { data: products } = await (supabaseAdmin as any)
       .from("products")
       .select("id, name, price, stock, active, category_id, can_be_ordered, maximum_quantity, item_categories(is_active)")
+      .eq("team_id", team.id)
       .in("id", ids);
     if (!products || products.length !== ids.length) throw new Error("חלק מהמוצרים לא נמצאו");
 
@@ -255,7 +257,7 @@ export const repeatOrder = createServerFn({ method: "POST" })
       .map((i) => i.product_id)
       .filter((x): x is string => !!x);
     const { data: products } = productIds.length
-      ? await supabaseAdmin.from("products").select("id, name, stock, active").in("id", productIds)
+      ? await supabaseAdmin.from("products").select("id, name, stock, active").eq("team_id", team.id).in("id", productIds)
       : { data: [] as any[] };
 
     const available: Array<{ product_id: string; quantity: number }> = [];
@@ -371,6 +373,7 @@ export const editOrder = createServerFn({ method: "POST" })
     const { data: products } = await (supabaseAdmin as any)
       .from("products")
       .select("id, name, price, stock, active, category_id, can_be_ordered, maximum_quantity, item_categories(is_active)")
+      .eq("team_id", team.id)
       .in("id", ids);
     if (!products || products.length !== ids.length) throw new Error("חלק מהמוצרים לא נמצאו");
 

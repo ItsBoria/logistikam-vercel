@@ -88,7 +88,7 @@ export const getRaspDashboard = createServerFn({ method: "POST" })
         .eq("team_id", teamId).order("created_at", { ascending: false }),
       (supabaseAdmin as any).from("replacement_products")
         .select("id, name, description, category, image_url, active, takin_stock, balai_stock")
-        .eq("active", true).order("category").order("name"),
+        .eq("team_id", teamId).eq("active", true).order("category").order("name"),
       (supabaseAdmin as any).from("budget_periods")
         .select("id, starting_budget, carry_over_amount, used_amount, remaining_amount, starts_at, ends_at")
         .eq("team_id", teamId).eq("status", "active").maybeSingle(),
@@ -289,6 +289,7 @@ export const createTeamReplacementItem = createServerFn({ method: "POST" })
     const { data: product } = await (supabaseAdmin as any)
       .from("replacement_products")
       .select("id, active")
+      .eq("team_id", teamId)
       .eq("id", data.product_id).maybeSingle();
     if (!product?.active) {
       throw new Error("הפריט אינו מאושר לשימוש כפריט החלפה");

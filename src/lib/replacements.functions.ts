@@ -26,6 +26,7 @@ export const getReplacementShop = createServerFn({ method: "POST" })
     const { data: products } = await supabaseAdmin
       .from("replacement_products")
       .select("id, name, description, category, image_url, takin_stock")
+      .eq("team_id", team.id)
       .eq("active", true)
       .gt("takin_stock", 0)
       .order("name");
@@ -63,7 +64,7 @@ export const submitReplacementRequest = createServerFn({ method: "POST" })
 
     const ids = data.items.map((i) => i.replacement_product_id);
     const { data: products } = await supabaseAdmin
-      .from("replacement_products").select("id, name, active, takin_stock").in("id", ids);
+      .from("replacement_products").select("id, name, active, takin_stock").eq("team_id", team.id).in("id", ids);
     if (!products || products.length !== ids.length) throw new Error("חלק מהפריטים לא נמצאו");
 
     const lines = data.items.map((i) => {
@@ -176,7 +177,7 @@ export const deleteReplacementRequest = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { req } = await loadOwnEditableRequest(supabaseAdmin, data.pin, data.request_id);
+    const { team, req } = await loadOwnEditableRequest(supabaseAdmin, data.pin, data.request_id);
     await restoreReplacementStock(supabaseAdmin, req.replacement_request_items as any[]);
     await supabaseAdmin.from("replacement_request_items").delete().eq("request_id", req.id);
     const { error } = await supabaseAdmin.from("replacement_requests").delete().eq("id", req.id);
@@ -204,7 +205,7 @@ export const editReplacementRequest = createServerFn({ method: "POST" })
 
     const ids = data.items.map((i) => i.replacement_product_id);
     const { data: products } = await supabaseAdmin
-      .from("replacement_products").select("id, name, active, takin_stock").in("id", ids);
+      .from("replacement_products").select("id, name, active, takin_stock").eq("team_id", team.id).in("id", ids);
     if (!products || products.length !== ids.length) throw new Error("חלק מהפריטים לא נמצאו");
 
     const lines = data.items.map((i) => {
