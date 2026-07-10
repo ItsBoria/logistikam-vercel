@@ -233,7 +233,7 @@ BEGIN
     UPDATE public.mission_weeks mw
     SET unit_id = (SELECT id FROM public.units WHERE code = 'ORIGINAL' LIMIT 1)
     WHERE mw.unit_id IS NULL;
-    CREATE INDEX IF NOT EXISTS mission_weeks_unit_week_idx ON public.mission_weeks(unit_id, week_start);
+    CREATE INDEX IF NOT EXISTS mission_weeks_unit_week_idx ON public.mission_weeks(unit_id, year, week);
   END IF;
 
   IF to_regclass('public.missions') IS NOT NULL THEN
