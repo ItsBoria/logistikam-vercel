@@ -196,32 +196,41 @@ export const listAdminUsers = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const viewerRole = await getLocalUserRole(context.userId);
-    const activeUnitId = viewerRole === "OWNER" ? null : await getAdminUnitScope(supabaseAdmin, context.userId);
-    const { data: roles } = activeUnitId
-      ? await supabaseAdmin
-          .from("unit_memberships")
-          .select("user_id, role, created_at")
-          .eq("unit_id", activeUnitId)
-          .eq("is_active", true)
-          .in("role", ["PLATFORM_OWNER", "UNIT_OWNER", "UNIT_ADMIN", "WORK_MANAGER", "LOGISTICS_NCO"])
-      : await supabaseAdmin
-          .from("user_roles")
-          .select("user_id, role, created_at")
-          .eq("is_active", true)
-          .in("role", ["OWNER", "WORK_MANAGER", "ADMIN"]);
+    const activeUnitId = await getAdminUnitScope(supabaseAdmin, context.userId);
+    const { data: unitMemberships } = await supabaseAdmin
+      .from("unit_memberships")
+      .select("user_id, role, is_active, created_at, updated_at")
+      .eq("unit_id", activeUnitId);
+    const { data: teamMemberships } = await supabaseAdmin
+      .from("team_memberships")
+      .select("user_id, team_id, role, is_active, created_at, teams(id, name, unit_id)")
+      .eq("unit_id", activeUnitId);
     const { data: list } = await supabaseAdmin.auth.admin.listUsers();
-    const userIds = Array.from(new Set((roles ?? []).map((r: any) => r.user_id)));
+    const userIds = Array.from(new Set([
+      ...(unitMemberships ?? []).map((r: any) => r.user_id),
+      ...(teamMemberships ?? []).map((r: any) => r.user_id),
+    ]));
     const { data: profs } = userIds.length
       ? await supabaseAdmin.from("profiles").select("id, is_approver, is_active").in("id", userIds)
       : { data: [] as any[] };
     const approverMap = new Map<string, boolean>((profs ?? []).map((p: any) => [p.id, !!p.is_approver]));
     const activeProfileMap = new Map<string, boolean>((profs ?? []).map((p: any) => [p.id, p.is_active !== false]));
-    const byUser = new Map<string, { roles: string[]; created_at: string }>();
-    for (const r of roles ?? []) {
+    const byUser = new Map<string, { roles: string[]; unit_active: boolean; created_at: string; teams: any[] }>();
+    for (const r of unitMemberships ?? []) {
       const row = r as any;
-      const cur = byUser.get(row.user_id) ?? { roles: [] as string[], created_at: row.created_at as string };
+      const cur = byUser.get(row.user_id) ?? { roles: [] as string[], unit_active: false, created_at: row.created_at as string, teams: [] as any[] };
       cur.roles.push(row.role as string);
+      cur.unit_active = cur.unit_active || row.is_active !== false;
+      if (new Date(row.created_at) < new Date(cur.created_at)) cur.created_at = row.created_at;
+      byUser.set(row.user_id, cur);
+    }
+    for (const membership of teamMemberships ?? []) {
+      const row = membership as any;
+      const cur = byUser.get(row.user_id) ?? { roles: ["UNIT_USER"], unit_active: false, created_at: row.created_at as string, teams: [] as any[] };
+      if (!cur.roles.length) cur.roles.push("UNIT_USER");
+      if (row.is_active !== false && row.teams?.unit_id === activeUnitId) {
+        cur.teams.push({ id: row.team_id, name: row.teams?.name ?? "", role: row.role ?? "TEAM_MEMBER", is_active: row.is_active !== false });
+      }
       if (new Date(row.created_at) < new Date(cur.created_at)) cur.created_at = row.created_at;
       byUser.set(row.user_id, cur);
     }
@@ -243,7 +252,12 @@ export const listAdminUsers = createServerFn({ method: "GET" })
         username: (u?.user_metadata as any)?.username ?? null,
         roles: sortedRoles.map(normalizeRole),
         current_role: normalizeRole(sortedRoles[0] ?? "USER"),
-        is_admin: sortedRoles.length > 0,
+        is_admin: sortedRoles.some((role) => ["PLATFORM_OWNER", "UNIT_OWNER", "UNIT_ADMIN", "WORK_MANAGER", "LOGISTICS_NCO"].includes(role)),
+        unit_roles: sortedRoles,
+        unit_active: info.unit_active,
+        team_id: info.teams[0]?.id ?? null,
+        team_name: info.teams[0]?.name ?? null,
+        teams: info.teams,
         is_staff: false,
         is_approver: approverMap.get(userId) ?? false,
         created_at: info.created_at,
@@ -256,11 +270,32 @@ export const createAdminUser = createServerFn({ method: "POST" })
     email: z.string().email(),
     username: z.string().min(2).max(40).regex(/^[a-zA-Z0-9_.-]+$/, "שם משתמש לא תקין"),
     password: z.string().min(8).max(72),
-    role: z.enum(["WORK_MANAGER", "ADMIN"]).default("ADMIN"),
+    role: z.enum(["WORK_MANAGER", "ADMIN", "USER"]).default("ADMIN"),
   }).parse(input))
   .handler(async ({ data, context }) => {
-    await assertOwner(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const actorGlobalRole = await getLocalUserRole(context.userId);
+    let activeUnitId: string | null = null;
+    try {
+      activeUnitId = await getAdminUnitScope(supabaseAdmin, context.userId);
+    } catch (e) {
+      if (actorGlobalRole !== "OWNER") throw e;
+    }
+    if (activeUnitId) {
+      const { data: actorMembership } = await supabaseAdmin
+        .from("unit_memberships")
+        .select("role")
+        .eq("user_id", context.userId)
+        .eq("unit_id", activeUnitId)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (!["UNIT_OWNER", "UNIT_ADMIN", "PLATFORM_OWNER"].includes(String(actorMembership?.role ?? ""))) {
+        throw new Error("אין הרשאה להוסיף משתמשים ביחידה הזו");
+      }
+    } else {
+      await assertOwner(context.userId);
+    }
+
     const usernameLower = data.username.trim().toLowerCase();
     const { data: list } = await supabaseAdmin.auth.admin.listUsers();
 
@@ -287,13 +322,31 @@ export const createAdminUser = createServerFn({ method: "POST" })
         user_metadata: { username: usernameLower },
       });
     }
-    const { error: roleError } = await (context.supabase as any).rpc("owner_set_user_role", {
-      _target_user_id: userId,
-      _role: data.role,
-      _active: true,
-      _reason: "Created through user management",
-    });
-    if (roleError) throw new Error(roleError.message);
+    if (activeUnitId) {
+      const unitRole = data.role === "WORK_MANAGER" ? "WORK_MANAGER" : data.role === "ADMIN" ? "LOGISTICS_NCO" : "UNIT_USER";
+      await (supabaseAdmin as any).from("unit_memberships").upsert({
+        user_id: userId,
+        unit_id: activeUnitId,
+        role: unitRole,
+        is_active: true,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id,unit_id" });
+      await (supabaseAdmin as any).from("audit_log").insert({
+        action_type: "UNIT_USER_CREATED",
+        target_type: "unit_membership",
+        target_id: userId,
+        performed_by_user_id: context.userId,
+        new_value: { unit_id: activeUnitId, role: unitRole, email: data.email },
+      });
+    } else {
+      const { error: roleError } = await (context.supabase as any).rpc("owner_set_user_role", {
+        _target_user_id: userId,
+        _role: data.role === "USER" ? "ADMIN" : data.role,
+        _active: true,
+        _reason: "Created through user management",
+      });
+      if (roleError) throw new Error(roleError.message);
+    }
 
     // Default notification prefs ON for new admin users
     if (data.role === "ADMIN" || data.role === "WORK_MANAGER") {
@@ -318,7 +371,56 @@ export const updateAdminUserRole = createServerFn({ method: "POST" })
     }
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const viewerRole = await getLocalUserRole(context.userId);
+    const unitRoleFromUi = data.role === "WORK_MANAGER" ? "WORK_MANAGER" : data.role === "ADMIN" ? "LOGISTICS_NCO" : "UNIT_USER";
     if (viewerRole === "OWNER") {
+      const { data: activeContext } = await (supabaseAdmin as any)
+        .from("user_active_contexts")
+        .select("active_unit_id")
+        .eq("user_id", context.userId)
+        .maybeSingle();
+      const activeUnitId = activeContext?.active_unit_id as string | null | undefined;
+      if (activeUnitId) {
+        const { data: currentMembership } = await (supabaseAdmin as any)
+          .from("unit_memberships")
+          .select("role, is_active")
+          .eq("user_id", data.user_id)
+          .eq("unit_id", activeUnitId)
+          .maybeSingle();
+        const { data: teamMembership } = await (supabaseAdmin as any)
+          .from("team_memberships")
+          .select("id")
+          .eq("user_id", data.user_id)
+          .eq("unit_id", activeUnitId)
+          .limit(1);
+        if (currentMembership || (teamMembership ?? []).length > 0) {
+          if (currentMembership?.role === "UNIT_OWNER") {
+            const { count } = await (supabaseAdmin as any)
+              .from("unit_memberships")
+              .select("id", { count: "exact", head: true })
+              .eq("unit_id", activeUnitId)
+              .eq("role", "UNIT_OWNER")
+              .eq("is_active", true)
+              .neq("user_id", data.user_id);
+            if (!count) throw new Error("לא ניתן להסיר את בעל היחידה הפעיל האחרון");
+          }
+          await (supabaseAdmin as any).from("unit_memberships").upsert({
+            user_id: data.user_id,
+            unit_id: activeUnitId,
+            role: unitRoleFromUi,
+            is_active: true,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: "user_id,unit_id" });
+          await (supabaseAdmin as any).from("audit_log").insert({
+            action_type: "UNIT_ROLE_CHANGED",
+            target_type: "unit_membership",
+            target_id: data.user_id,
+            performed_by_user_id: context.userId,
+            old_value: { unit_id: activeUnitId, role: currentMembership?.role ?? null },
+            new_value: { unit_id: activeUnitId, role: unitRoleFromUi },
+          });
+          return { ok: true };
+        }
+      }
       const { error } = await (context.supabase as any).rpc("owner_set_user_role", {
         _target_user_id: data.user_id,
         _role: data.role,
@@ -365,11 +467,10 @@ export const updateAdminUserRole = createServerFn({ method: "POST" })
         if (!count) throw new Error("לא ניתן להסיר את בעל היחידה הפעיל האחרון");
       }
 
-      const newRole = data.role === "WORK_MANAGER" ? "WORK_MANAGER" : data.role === "ADMIN" ? "LOGISTICS_NCO" : "UNIT_USER";
       await supabaseAdmin.from("unit_memberships").upsert({
         user_id: data.user_id,
         unit_id: unitId,
-        role: newRole,
+        role: unitRoleFromUi,
         is_active: true,
         updated_at: new Date().toISOString(),
       }, { onConflict: "user_id,unit_id" });
@@ -379,7 +480,7 @@ export const updateAdminUserRole = createServerFn({ method: "POST" })
         target_id: data.user_id,
         performed_by_user_id: context.userId,
         old_value: { unit_id: unitId, role: currentMembership?.role ?? null },
-        new_value: { unit_id: unitId, role: newRole },
+        new_value: { unit_id: unitId, role: unitRoleFromUi },
       });
     }
     return { ok: true };
@@ -451,9 +552,71 @@ export const deleteAdminUser = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input) => z.object({ user_id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
-    await assertOwner(context.userId);
     if (data.user_id === context.userId) throw new Error("לא ניתן למחוק את עצמך");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const actorGlobalRole = await getLocalUserRole(context.userId);
+    if (actorGlobalRole !== "OWNER") {
+      const unitId = await getAdminUnitScope(supabaseAdmin, context.userId);
+      const { data: actorMembership } = await supabaseAdmin
+        .from("unit_memberships")
+        .select("role")
+        .eq("user_id", context.userId)
+        .eq("unit_id", unitId)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (!["UNIT_OWNER", "UNIT_ADMIN", "PLATFORM_OWNER"].includes(String(actorMembership?.role ?? ""))) {
+        throw new Error("אין הרשאה להסיר משתמשים ביחידה הזו");
+      }
+
+      const { data: targetMembership } = await (supabaseAdmin as any)
+        .from("unit_memberships")
+        .select("id, role, is_active")
+        .eq("user_id", data.user_id)
+        .eq("unit_id", unitId)
+        .maybeSingle();
+      if (!targetMembership) throw new Error("המשתמש אינו שייך ליחידה הפעילה");
+      if (targetMembership.role === "UNIT_OWNER" && targetMembership.is_active !== false) {
+        const { count } = await (supabaseAdmin as any)
+          .from("unit_memberships")
+          .select("id", { count: "exact", head: true })
+          .eq("unit_id", unitId)
+          .eq("role", "UNIT_OWNER")
+          .eq("is_active", true)
+          .neq("user_id", data.user_id);
+        if (!count) throw new Error("לא ניתן להסיר את בעל היחידה הפעיל האחרון");
+      }
+
+      const deletedAt = new Date().toISOString();
+      await (supabaseAdmin as any)
+        .from("unit_memberships")
+        .update({ is_active: false, updated_at: deletedAt })
+        .eq("user_id", data.user_id)
+        .eq("unit_id", unitId);
+      await (supabaseAdmin as any)
+        .from("team_memberships")
+        .update({ is_active: false, updated_at: deletedAt })
+        .eq("user_id", data.user_id)
+        .eq("unit_id", unitId);
+      await (supabaseAdmin as any).from("unit_access_requests").update({
+        status: "cancelled",
+        review_notes: "Cancelled because the user was removed from this Unit.",
+        resolved_by: context.userId,
+        resolved_at: deletedAt,
+        updated_at: deletedAt,
+      }).eq("user_id", data.user_id).eq("unit_id", unitId).eq("status", "pending");
+      await (supabaseAdmin as any).from("audit_log").insert({
+        action_type: "UNIT_USER_DEACTIVATED",
+        target_type: "unit_membership",
+        target_id: data.user_id,
+        performed_by_user_id: context.userId,
+        performer_role: actorMembership?.role ?? null,
+        old_value: { unit_id: unitId, role: targetMembership.role, is_active: targetMembership.is_active },
+        new_value: { unit_id: unitId, is_active: false },
+      });
+      return { ok: true, auth_deleted: false, deactivated: true, unit_deactivated: true };
+    }
+
+    await assertOwner(context.userId);
     const { data: targetRole } = await (supabaseAdmin as any).rpc("current_role_code", { _user_id: data.user_id });
     if (targetRole === "OWNER") throw new Error("לא ניתן למחוק את חשבון הבעלים");
 

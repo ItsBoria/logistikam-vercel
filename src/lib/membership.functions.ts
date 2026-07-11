@@ -502,7 +502,43 @@ export const submitUnitRegistrationRequest = createServerFn({ method: "POST" })
     if (duplicateError) throw new Error(duplicateError.message);
     const existingPending = duplicateResults.map((result: any) => result.data?.[0]).find(Boolean);
     if (existingPending) {
+      await supabaseAdmin.from("audit_log").insert({
+        action_type: "UNIT_REGISTRATION_DUPLICATE_BLOCKED",
+        target_type: "unit_registration_request",
+        target_id: existingPending.id,
+        performed_by_user_id: context.userId,
+        new_value: {
+          requested_unit_name: normalizedName,
+          requested_unit_code: normalizedCode,
+          requested_admin_email: requestedAdminEmail,
+          existing_created_at: existingPending.created_at,
+        },
+      } as any);
       return { ok: true, status: "pending", duplicate_blocked: true, request: mapUnitRegistrationRequestForClient(existingPending) };
+    }
+
+    const rateWindowIso = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { count: recentAttemptCount, error: rateError } = await supabaseAdmin
+      .from("audit_log")
+      .select("id", { count: "exact", head: true })
+      .eq("performed_by_user_id", context.userId)
+      .in("action_type", ["UNIT_REGISTRATION_REQUEST_SUBMITTED", "UNIT_REGISTRATION_DUPLICATE_BLOCKED", "UNIT_REGISTRATION_RATE_LIMITED"])
+      .gte("created_at", rateWindowIso);
+    if (rateError) throw new Error(rateError.message);
+    if ((recentAttemptCount ?? 0) >= 10) {
+      await supabaseAdmin.from("audit_log").insert({
+        action_type: "UNIT_REGISTRATION_RATE_LIMITED",
+        target_type: "unit_registration_request",
+        performed_by_user_id: context.userId,
+        new_value: {
+          requested_unit_name: normalizedName,
+          requested_unit_code: normalizedCode,
+          requested_admin_email: requestedAdminEmail,
+          window: "1h",
+          recent_attempt_count: recentAttemptCount ?? 0,
+        },
+      } as any);
+      throw new Error("נשלחו יותר מדי בקשות בזמן קצר. נסה שוב מאוחר יותר.");
     }
 
     if (normalizedCode) {

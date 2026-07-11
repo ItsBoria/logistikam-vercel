@@ -785,13 +785,18 @@ Latest multi-unit hardening added:
 - `updateAdminUserRole` stores non-owner role changes in `unit_memberships`, blocks unauthorized Unit-role administration, prevents changing the final active `UNIT_OWNER`, and audits Unit-role changes.
 - `setUserTeamAdmin` no longer downgrades an existing admin membership to `UNIT_USER` when assigning a Team. It preserves existing Unit roles and only creates `UNIT_USER` when the user had no Unit membership.
 - Owner user deletion is handled by `deleteAdminUser` in `src/lib/admin.functions.ts` and exposed in `src/routes/admin.users.tsx`. It is owner-only, blocks deleting yourself, blocks deleting the platform `OWNER`, blocks deleting the final active `UNIT_OWNER` of any Unit, revokes global/Unit/Team access, cancels pending access requests, hides the user from active app lists, and attempts Supabase Auth deletion. If Auth deletion is blocked by historical FK records, the function falls back to banning/deactivating the user and renames their Supabase Auth email to `deleted+{userId}@deleted.logistikam.local` so the original email can register again.
+- Unit user deletion/deactivation is now scoped: non-platform Unit owners/admins can deactivate a user's `unit_memberships` and `team_memberships` only inside their active Unit, cancel that Unit's pending access requests, and cannot remove the final active `UNIT_OWNER`. Platform Owner deletion still performs global revocation and Auth delete/tombstone fallback.
+- Unit owners/admins can create users into their active Unit from `src/routes/admin.users.tsx`; this creates/updates Supabase Auth and stores the role in `unit_memberships` instead of granting global roles. Platform Owner support still exists, but selected-Unit user role changes update selected-Unit membership when the target belongs to that Unit.
+- New-Unit registration requests now audit duplicate blocked submissions and enforce a simple authenticated-user rate limit through `audit_log` before inserting another business request.
 - `supabase/migrations/20260711190000_unit_integrity_repair_and_constraints.sql` repairs non-null mismatched `unit_id` values, assigns approved Unit creators as `UNIT_OWNER`, cancels duplicate pending Unit-registration requests while preserving the earliest pending row, adds duplicate-prevention indexes, adds `UNIT_ADMIN` to the access-request role check, enforces `team_memberships.unit_id = teams.unit_id`, prevents removal of the final active `UNIT_OWNER`, and creates `public.unit_integrity_validation`.
 - `supabase/migrations/20260711193000_repair_missing_unit_owners.sql` handles the validation case where a Unit still has no active `UNIT_OWNER`: the `ORIGINAL` Unit receives the active global `OWNER`, and any other Unit without an owner promotes its strongest existing active admin-like Unit membership to `UNIT_OWNER`. Units with no candidate intentionally remain in `public.unit_integrity_validation` for manual assignment.
+- `supabase/migrations/20260711203000_unit_scope_validation_followup.sql` adds another safe repair/validation pass for original and mismatched Unit data. It syncs team-owned records from `teams.unit_id`, syncs order/replacement child rows from their parents where supported, refreshes `public.unit_integrity_validation`, and adds `public.original_unit_data_counts` for post-migration verification.
 
 After running the latest migration in Supabase, check:
 
 ```sql
 select * from public.unit_integrity_validation;
+select * from public.original_unit_data_counts;
 ```
 
 The result should be empty. If rows remain, inspect them before assuming the migration fully repaired production data.

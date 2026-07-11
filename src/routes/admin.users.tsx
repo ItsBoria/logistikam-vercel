@@ -73,14 +73,14 @@ function Admins() {
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<"WORK_MANAGER" | "ADMIN">("ADMIN");
+  const [role, setRole] = useState<"WORK_MANAGER" | "ADMIN" | "USER">("USER");
 
 
   async function create() {
     try {
       await createFn({ data: { email, username, password, role } });
       toast.success("המשתמש נוסף");
-      setEmail(""); setUsername(""); setPassword(""); setRole("ADMIN"); setCreating(false);
+      setEmail(""); setUsername(""); setPassword(""); setRole("USER"); setCreating(false);
       qc.invalidateQueries({ queryKey: ["unit", unitKey] });
     } catch (e: any) { toast.error(e.message); }
   }
@@ -179,6 +179,7 @@ function Admins() {
             {admins?.map((a: any) => {
               const isMe = a.user_id === session?.user.id;
               const isAdmin = a.is_admin;
+              const teamNames = (a.teams ?? []).map((team: any) => team.name).filter(Boolean).join(", ");
               return (
                 <div key={a.user_id} className="flex items-center justify-between p-4 gap-3 flex-wrap">
                   <div className="flex items-center gap-3">
@@ -194,6 +195,10 @@ function Admins() {
                       </div>
                       <div className="text-xs text-muted-foreground">
                         {a.username ? `${a.email} · ` : ""}נוסף: {new Date(a.created_at).toLocaleDateString("he-IL")}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        סטטוס ביחידה: {a.unit_active ? "פעיל" : "לא פעיל"}
+                        {teamNames ? ` · צוותים: ${teamNames}` : " · ללא צוות"}
                       </div>
                     </div>
                   </div>
@@ -263,6 +268,11 @@ function Admins() {
                       {u.team_name && (
                         <div className="text-xs text-muted-foreground mt-0.5">צוות: {u.team_name}</div>
                       )}
+                      {u.teams?.length > 1 && (
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          צוותים נוספים: {u.teams.slice(1).map((team: any) => team.name).join(", ")}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
@@ -315,12 +325,13 @@ function Admins() {
               <label className="text-sm">תפקיד</label>
               <Select value={role} onValueChange={(v) => setRole(v as any)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="WORK_MANAGER">מנהל עבודה</SelectItem>
-                  <SelectItem value="ADMIN">נגד לוגיסטיקה</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+                  <SelectContent>
+                    <SelectItem value="WORK_MANAGER">מנהל עבודה</SelectItem>
+                    <SelectItem value="ADMIN">נגד לוגיסטיקה</SelectItem>
+                    <SelectItem value="USER">משתמש / רס״פ</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             <div><label className="text-sm">אימייל</label><Input value={email} onChange={(e) => setEmail(e.target.value)} type="email" dir="ltr" placeholder="name@example.com" /></div>
             <div>
               <label className="text-sm">שם משתמש</label>

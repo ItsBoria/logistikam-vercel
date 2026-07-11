@@ -8,7 +8,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { Button } from "@/components/ui/button";
 import { PushToggle } from "@/components/push-toggle";
 import { InstallButton } from "@/components/install-button";
-import { useCart } from "@/lib/cart-context";
+import { useCart, useOptionalCart } from "@/lib/cart-context";
 import { getShopData } from "@/lib/team.functions";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -185,6 +185,7 @@ function Tab({ item, active }: { item: Item; active: boolean }) {
 export function BottomTabBar({ pin }: { pin?: string }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const cart = useOptionalCart();
   const isActive = useIsActive();
   const [open, setOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -195,6 +196,7 @@ export function BottomTabBar({ pin }: { pin?: string }) {
     try {
       setOpen(false);
       await queryClient.cancelQueries();
+      cart?.clear();
       clearClientSessionState();
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
