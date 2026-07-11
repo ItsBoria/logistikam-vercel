@@ -213,9 +213,10 @@ export const listAdminUsers = createServerFn({ method: "GET" })
     const { data: list } = await supabaseAdmin.auth.admin.listUsers();
     const userIds = Array.from(new Set((roles ?? []).map((r: any) => r.user_id)));
     const { data: profs } = userIds.length
-      ? await supabaseAdmin.from("profiles").select("id, is_approver").in("id", userIds)
+      ? await supabaseAdmin.from("profiles").select("id, is_approver, is_active").in("id", userIds)
       : { data: [] as any[] };
     const approverMap = new Map<string, boolean>((profs ?? []).map((p: any) => [p.id, !!p.is_approver]));
+    const activeProfileMap = new Map<string, boolean>((profs ?? []).map((p: any) => [p.id, p.is_active !== false]));
     const byUser = new Map<string, { roles: string[]; created_at: string }>();
     for (const r of roles ?? []) {
       const row = r as any;
@@ -247,7 +248,7 @@ export const listAdminUsers = createServerFn({ method: "GET" })
         is_approver: approverMap.get(userId) ?? false,
         created_at: info.created_at,
       };
-    });
+    }).filter((row) => activeProfileMap.get(row.user_id) !== false);
   });
 export const createAdminUser = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -403,8 +404,9 @@ export const searchRegisteredUsers = createServerFn({ method: "POST" })
     const ids = list.users.map(u => u.id);
     const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
     const { data: profs } = await supabaseAdmin
-      .from("profiles").select("id, display_name").in("id", safeIds);
+      .from("profiles").select("id, display_name, is_active").in("id", safeIds);
     const nameById = new Map((profs ?? []).map((p: any) => [p.id, p.display_name as string | null]));
+    const activeProfileMap = new Map((profs ?? []).map((p: any) => [p.id, p.is_active !== false]));
     const { data: memberships } = await supabaseAdmin
       .from("team_memberships").select("user_id, team_id, unit_id").in("user_id", safeIds);
     const scopedMemberships = activeUnitId ? (memberships ?? []).filter((m: any) => m.unit_id === activeUnitId) : (memberships ?? []);
@@ -438,7 +440,7 @@ export const searchRegisteredUsers = createServerFn({ method: "POST" })
         team_name: teamId ? (teamNameById.get(teamId) ?? null) : null,
         created_at: u.created_at,
       };
-    }).filter((row) => !activeUnitId || unitRoleByUser.has(row.id) || teamIdByUser.has(row.id));
+    }).filter((row) => activeProfileMap.get(row.id) !== false && (!activeUnitId || unitRoleByUser.has(row.id) || teamIdByUser.has(row.id)));
     const filtered = q
       ? rows.filter(r => r.email.toLowerCase().includes(q) || r.displayName.toLowerCase().includes(q))
       : rows;
@@ -450,26 +452,82 @@ export const deleteAdminUser = createServerFn({ method: "POST" })
   .inputValidator((input) => z.object({ user_id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
     await assertOwner(context.userId);
-    if (data.user_id === context.userId) throw new Error("×œ× × ×™×ª×Ÿ ×œ×ž×—×•×§ ××ª ×¢×¦×ž×š");
+    if (data.user_id === context.userId) throw new Error("לא ניתן למחוק את עצמך");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: targetRole } = await (supabaseAdmin as any).rpc("current_role_code", { _user_id: data.user_id });
-    if (targetRole === "OWNER") throw new Error("×œ× × ×™×ª×Ÿ ×œ×”×©×‘×™×ª ××ª ×—×©×‘×•×Ÿ ×”×‘×¢×œ×™×");
-    await supabaseAdmin.from("profiles").update({
+    if (targetRole === "OWNER") throw new Error("לא ניתן למחוק את חשבון הבעלים");
+
+    const { data: targetUser } = await supabaseAdmin.auth.admin.getUserById(data.user_id);
+    const { data: ownedUnits } = await (supabaseAdmin as any)
+      .from("unit_memberships")
+      .select("id, unit_id")
+      .eq("user_id", data.user_id)
+      .eq("role", "UNIT_OWNER")
+      .eq("is_active", true);
+    for (const membership of ownedUnits ?? []) {
+      const { count } = await (supabaseAdmin as any)
+        .from("unit_memberships")
+        .select("id", { count: "exact", head: true })
+        .eq("unit_id", membership.unit_id)
+        .eq("role", "UNIT_OWNER")
+        .eq("is_active", true)
+        .neq("user_id", data.user_id);
+      if (!count) {
+        throw new Error("לא ניתן למחוק משתמש שהוא בעל היחידה הפעיל האחרון. קודם תמנה בעל יחידה נוסף.");
+      }
+    }
+
+    const deletedAt = new Date().toISOString();
+    await supabaseAdmin.from("profiles").upsert({
+      id: data.user_id,
       is_active: false,
-      deactivated_at: new Date().toISOString(),
+      deactivated_at: deletedAt,
       deactivated_by: context.userId,
-    }).eq("id", data.user_id);
+    } as any);
     await supabaseAdmin.from("user_roles").update({ is_active: false }).eq("user_id", data.user_id);
-    await supabaseAdmin.auth.admin.updateUserById(data.user_id, { ban_duration: "876000h" });
+    await (supabaseAdmin as any).from("unit_memberships").update({ is_active: false, updated_at: deletedAt }).eq("user_id", data.user_id);
+    await (supabaseAdmin as any).from("team_memberships").update({ is_active: false, updated_at: deletedAt }).eq("user_id", data.user_id);
+    await supabaseAdmin.from("team_members").update({ is_active: false, updated_at: deletedAt }).eq("user_id", data.user_id);
+    await (supabaseAdmin as any).from("unit_access_requests").update({
+      status: "cancelled",
+      review_notes: "Cancelled because the user was deleted by the app owner.",
+      resolved_by: context.userId,
+      resolved_at: deletedAt,
+      updated_at: deletedAt,
+    }).eq("user_id", data.user_id).eq("status", "pending");
+
+    let authDeleted = false;
+    let deleteError: string | null = null;
+    const { error: hardDeleteError } = await supabaseAdmin.auth.admin.deleteUser(data.user_id);
+    if (hardDeleteError) {
+      deleteError = hardDeleteError.message;
+      const { error: banError } = await supabaseAdmin.auth.admin.updateUserById(data.user_id, {
+        ban_duration: "876000h",
+        user_metadata: {
+          ...((targetUser?.user?.user_metadata as any) ?? {}),
+          deleted_at: deletedAt,
+          deleted_by: context.userId,
+        },
+      });
+      if (banError) throw new Error(banError.message);
+    } else {
+      authDeleted = true;
+    }
+
     await (supabaseAdmin as any).from("audit_log").insert({
-      action_type: "USER_DEACTIVATED",
+      action_type: authDeleted ? "USER_DELETED" : "USER_DEACTIVATED",
       target_type: "user",
       target_id: data.user_id,
       performed_by_user_id: context.userId,
       performer_role: "OWNER",
-      new_value: { is_active: false },
+      new_value: {
+        is_active: false,
+        auth_deleted: authDeleted,
+        delete_error: deleteError,
+        email: targetUser?.user?.email ?? null,
+      },
     });
-    return { ok: true };
+    return { ok: true, auth_deleted: authDeleted, deactivated: !authDeleted };
   });
 
 // Teams (admin-only â€” exposes PIN)

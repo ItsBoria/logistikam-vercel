@@ -85,10 +85,10 @@ function Admins() {
     } catch (e: any) { toast.error(e.message); }
   }
   async function remove(id: string) {
-    if (!confirm("להסיר משתמש זה?")) return;
+    if (!confirm("למחוק את המשתמש? הפעולה תסיר הרשאות, תחסום כניסה ותנסה למחוק אותו ממערכת ההתחברות.")) return;
     try {
-      await deleteFn({ data: { user_id: id } });
-      toast.success("נמחק");
+      const result = await deleteFn({ data: { user_id: id } });
+      toast.success((result as any)?.auth_deleted ? "המשתמש נמחק" : "המשתמש הוסר מהאפליקציה ונחסם");
       qc.invalidateQueries({ queryKey: ["unit", unitKey] });
     } catch (e: any) { toast.error(e.message); }
   }
@@ -218,6 +218,17 @@ function Admins() {
                     {!isMe ? (
                       <Button variant="ghost" size="icon" onClick={() => remove(a.user_id)}><Trash2 className="w-4 h-4 text-destructive" /></Button>
                     ) : <span className="text-xs text-muted-foreground">(אתה)</span>}
+                    {!isMe && u.currentRole !== "OWNER" && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => remove(u.id)}
+                        title="מחיקת משתמש"
+                        aria-label="מחיקת משתמש"
+                      >
+                        <Trash2 className="w-4 h-4 text-destructive" />
+                      </Button>
+                    )}
                   </div>
                 </div>
               );
