@@ -28,6 +28,9 @@ function SelectTeam() {
   const setUnitFn = useServerFn(setMyUnit);
   const setTeamFn = useServerFn(setMyTeam);
   const ctxFn = useServerFn(getMyTeamContext);
+  const [unitId, setUnitId] = useState("");
+  const [teamId, setTeamId] = useState("");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!loading && !session) navigate({ to: "/", replace: true });
@@ -45,10 +48,6 @@ function SelectTeam() {
     queryFn: () => listTeamsFn(),
     retry: false,
   });
-
-  const [unitId, setUnitId] = useState("");
-  const [teamId, setTeamId] = useState("");
-  const [saving, setSaving] = useState(false);
 
   async function onUnitChange(nextUnitId: string) {
     setUnitId(nextUnitId);
