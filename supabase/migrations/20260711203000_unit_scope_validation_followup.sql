@@ -102,6 +102,9 @@ BEGIN
   END IF;
 
   IF to_regclass('public.budget_policies') IS NOT NULL THEN
+    ALTER TABLE public.budget_policies
+      ADD COLUMN IF NOT EXISTS unit_id uuid REFERENCES public.units(id) ON DELETE SET NULL;
+
     UPDATE public.budget_policies
     SET unit_id = original_unit_id
     WHERE unit_id IS NULL;
