@@ -33,6 +33,8 @@ The app now separates platform ownership from day-to-day Unit user approval:
 - The single platform Owner creates or approves Units and can switch between Units.
 - Once a Unit exists, Unit admins manage users inside that Unit.
 - New authenticated users with no Unit access land on `src/routes/select-team.tsx`, choose a Unit, and submit a row in `public.unit_access_requests`.
+- If the user's Unit does not exist yet, `src/routes/select-team.tsx` also lets them submit a self-service Unit registration request into `public.unit_registration_requests`.
+- The platform Owner reviews Unit registration requests in `src/routes/admin.units.tsx`. Approving one creates the Unit, creates a `PLATFORM_OWNER` membership for the Owner, and assigns the requester as `UNIT_OWNER`.
 - Unit admins review pending Unit access requests in `src/routes/admin.users.tsx` under the "בקשות גישה" tab.
 - Approving a request creates or updates `unit_memberships` for that Unit and can also assign the user to a Team through `team_memberships` / legacy `team_members`.
 - Owner users should not need to approve every normal user. Owner approval is only for Unit-level lifecycle and platform-wide control.

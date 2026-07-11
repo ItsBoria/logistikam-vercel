@@ -6,16 +6,19 @@ import { useSupabaseSession } from "@/hooks/use-supabase-session";
 import {
   getMyTeamContext,
   listActiveUnits,
+  listMyUnitRegistrationRequests,
   listMyUnitAccessRequests,
   listRequestableUnits,
   listTeamsForActiveUnit,
   setMyTeam,
   setMyUnit,
+  submitUnitRegistrationRequest,
   submitUnitAccessRequest,
 } from "@/lib/membership.functions";
 import { clearClientSessionState, setAdminActing, setTeamSession } from "@/lib/team-session";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, LogOut } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -40,11 +43,19 @@ function SelectTeam() {
   const requestableUnitsFn = useServerFn(listRequestableUnits);
   const myAccessRequestsFn = useServerFn(listMyUnitAccessRequests);
   const submitAccessRequestFn = useServerFn(submitUnitAccessRequest);
+  const myUnitRegistrationRequestsFn = useServerFn(listMyUnitRegistrationRequests);
+  const submitUnitRegistrationRequestFn = useServerFn(submitUnitRegistrationRequest);
   const [unitId, setUnitId] = useState("");
   const [teamId, setTeamId] = useState("");
   const [saving, setSaving] = useState(false);
   const [requestUnitId, setRequestUnitId] = useState("");
   const [requestNote, setRequestNote] = useState("");
+  const [newUnitOpen, setNewUnitOpen] = useState(false);
+  const [newUnitName, setNewUnitName] = useState("");
+  const [newUnitCode, setNewUnitCode] = useState("");
+  const [newUnitContactName, setNewUnitContactName] = useState("");
+  const [newUnitContactPhone, setNewUnitContactPhone] = useState("");
+  const [newUnitDescription, setNewUnitDescription] = useState("");
   const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
@@ -65,6 +76,11 @@ function SelectTeam() {
     enabled: !!session && !unitsLoading && !(units ?? []).length,
     queryKey: ["my-unit-access-requests"],
     queryFn: () => myAccessRequestsFn(),
+  });
+  const { data: myUnitRegistrationRequests } = useQuery({
+    enabled: !!session && !unitsLoading && !(units ?? []).length,
+    queryKey: ["my-unit-registration-requests"],
+    queryFn: () => myUnitRegistrationRequestsFn(),
   });
 
   const { data: teams, isLoading: teamsLoading } = useQuery({
@@ -143,9 +159,49 @@ function SelectTeam() {
     }
   }
 
+  async function requestNewUnit() {
+    const contactName = newUnitContactName.trim() || defaultContactName.trim();
+    if (!newUnitName.trim() || !contactName || hasPendingUnitRegistrationRequest) return;
+    setSaving(true);
+    try {
+      const res = await submitUnitRegistrationRequestFn({
+        data: {
+          requested_unit_name: newUnitName,
+          requested_unit_code: newUnitCode,
+          contact_name: contactName,
+          contact_phone: newUnitContactPhone,
+          description: newUnitDescription,
+          accepted_terms: true,
+        },
+      });
+      if ((res as any)?.duplicate_blocked) {
+        toast.info("כבר קיימת בקשת פתיחת יחידה שממתינה לאישור");
+      } else {
+        toast.success("בקשת פתיחת היחידה נשלחה לבעל המערכת");
+      }
+      setNewUnitOpen(false);
+      setNewUnitName("");
+      setNewUnitCode("");
+      setNewUnitContactPhone("");
+      setNewUnitDescription("");
+      await qc.invalidateQueries({ queryKey: ["my-unit-registration-requests"] });
+    } catch (e: any) {
+      toast.error(e.message || "שגיאה בשליחת בקשת פתיחת יחידה");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const selectedRequest = (myAccessRequests ?? []).find((request: any) => request.unit_id === requestUnitId);
   const hasPendingRequest = selectedRequest?.status === "pending";
   const rejectedRequest = selectedRequest?.status === "rejected" ? selectedRequest : null;
+  const pendingUnitRegistrationRequest = (myUnitRegistrationRequests ?? []).find((request: any) => request.status === "pending");
+  const hasPendingUnitRegistrationRequest = !!pendingUnitRegistrationRequest;
+  const defaultContactName =
+    (session.user.user_metadata?.full_name as string | undefined) ||
+    (session.user.user_metadata?.name as string | undefined) ||
+    session.user.email?.split("@")[0] ||
+    "";
 
   if (loading || !session) {
     return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
@@ -167,9 +223,14 @@ function SelectTeam() {
           ) : !(units ?? []).length ? (
             <div className="space-y-4 text-center">
               <div className="rounded-xl bg-muted/70 p-4 text-sm text-muted-foreground">
-                לא נמצאה לך גישה פעילה ליחידה. בחר יחידה ושלח בקשת גישה למנהל היחידה.
+                לא נמצאה לך גישה פעילה ליחידה. אפשר לשלוח בקשת גישה ליחידה קיימת, או לבקש לפתוח יחידה חדשה.
               </div>
               <div className="space-y-3 text-right">
+                <div className="rounded-xl border bg-background/70 p-3 space-y-3">
+                  <div>
+                    <div className="font-semibold text-sm">בקשת גישה ליחידה קיימת</div>
+                    <div className="text-xs text-muted-foreground">מנהל היחידה יאשר אותך ויבחר תפקיד/צוות.</div>
+                  </div>
                 <Select value={requestUnitId} onValueChange={setRequestUnitId}>
                   <SelectTrigger><SelectValue placeholder="בחר/י יחידה לשליחת בקשת גישה" /></SelectTrigger>
                   <SelectContent>
@@ -198,6 +259,44 @@ function SelectTeam() {
                 <Button className="w-full" disabled={!requestUnitId || saving || hasPendingRequest} onClick={requestAccess}>
                   {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : "שלח בקשת גישה"}
                 </Button>
+                </div>
+
+                <div className="rounded-xl border bg-background/70 p-3 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-sm">פתיחת יחידה חדשה</div>
+                      <div className="text-xs text-muted-foreground">הבקשה תישלח לבעל המערכת. לאחר אישור תהפוך למנהל היחידה.</div>
+                    </div>
+                    <Button type="button" variant="outline" size="sm" onClick={() => {
+                      setNewUnitOpen((open) => !open);
+                      if (!newUnitContactName) setNewUnitContactName(defaultContactName);
+                    }} disabled={hasPendingUnitRegistrationRequest}>
+                      {newUnitOpen ? "סגור" : "בקשה חדשה"}
+                    </Button>
+                  </div>
+                  {hasPendingUnitRegistrationRequest && (
+                    <div className="rounded-lg bg-warning/15 p-3 text-sm text-warning-foreground">
+                      בקשת פתיחת היחידה "{pendingUnitRegistrationRequest.requested_unit_name}" ממתינה לאישור בעל המערכת.
+                    </div>
+                  )}
+                  {newUnitOpen && !hasPendingUnitRegistrationRequest && (
+                    <div className="space-y-2">
+                      <Input value={newUnitName} onChange={(e) => setNewUnitName(e.target.value)} placeholder="שם היחידה" />
+                      <Input value={newUnitCode} onChange={(e) => setNewUnitCode(e.target.value)} placeholder="קוד יחידה, אופציונלי" dir="ltr" />
+                      <Input value={newUnitContactName} onChange={(e) => setNewUnitContactName(e.target.value)} placeholder="שם איש קשר" />
+                      <Input value={newUnitContactPhone} onChange={(e) => setNewUnitContactPhone(e.target.value)} placeholder="טלפון איש קשר, אופציונלי" dir="ltr" />
+                      <textarea
+                        className="min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                        value={newUnitDescription}
+                        onChange={(e) => setNewUnitDescription(e.target.value)}
+                        placeholder="הערה לבעל המערכת, אופציונלי"
+                      />
+                      <Button className="w-full" disabled={!newUnitName.trim() || !(newUnitContactName || defaultContactName).trim() || saving} onClick={requestNewUnit}>
+                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : "שלח בקשה לפתיחת יחידה"}
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </div>
               <Button variant="ghost" className="w-full" onClick={logout} disabled={loggingOut}>
                 {loggingOut ? <Loader2 className="w-4 h-4 ml-2 animate-spin" /> : <LogOut className="w-4 h-4 ml-2" />}

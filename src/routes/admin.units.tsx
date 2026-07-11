@@ -3,14 +3,21 @@ import { useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AdminShell } from "@/components/admin-shell";
-import { createUnit, listOwnerUnits, softDeleteOwnerUnit, updateOwnerUnit } from "@/lib/membership.functions";
+import {
+  createUnit,
+  listOwnerUnits,
+  listUnitRegistrationRequests,
+  resolveUnitRegistrationRequest,
+  softDeleteOwnerUnit,
+  updateOwnerUnit,
+} from "@/lib/membership.functions";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Building2, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { Building2, Check, Clock, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/admin/units")({
@@ -50,12 +57,19 @@ function UnitsPage() {
   const createFn = useServerFn(createUnit);
   const updateFn = useServerFn(updateOwnerUnit);
   const deleteFn = useServerFn(softDeleteOwnerUnit);
+  const listRegistrationRequestsFn = useServerFn(listUnitRegistrationRequests);
+  const resolveRegistrationRequestFn = useServerFn(resolveUnitRegistrationRequest);
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<UnitForm | null>(null);
 
   const { data: units, isLoading } = useQuery({
     queryKey: ["owner-units", query],
     queryFn: () => listFn({ data: { query } }),
+    staleTime: 20_000,
+  });
+  const { data: registrationRequests, isLoading: requestsLoading } = useQuery({
+    queryKey: ["unit-registration-requests"],
+    queryFn: () => listRegistrationRequestsFn(),
     staleTime: 20_000,
   });
 
@@ -104,6 +118,25 @@ function UnitsPage() {
     }
   }
 
+  async function resolveRegistrationRequest(request: any, decision: "approved" | "rejected", reviewNotes = "") {
+    const actionLabel = decision === "approved" ? "לאשר" : "לדחות";
+    if (!confirm(`${actionLabel} את בקשת פתיחת היחידה "${request.requested_unit_name}"?`)) return;
+    try {
+      await resolveRegistrationRequestFn({ data: { request_id: request.id, decision, review_notes: reviewNotes } });
+      toast.success(decision === "approved" ? "היחידה נפתחה והמשתמש הוגדר כמנהל יחידה" : "הבקשה נדחתה");
+      await qc.invalidateQueries({ queryKey: ["unit-registration-requests"] });
+      await qc.invalidateQueries({ queryKey: ["owner-units"] });
+      await qc.invalidateQueries({ queryKey: ["active-units"] });
+    } catch (e: any) {
+      toast.error(e.message || "שגיאה בטיפול בבקשה");
+    }
+  }
+
+  const pendingRegistrationRequests = (registrationRequests ?? []).filter((request: any) => request.status === "pending");
+  const recentClosedRegistrationRequests = (registrationRequests ?? [])
+    .filter((request: any) => request.status !== "pending")
+    .slice(0, 5);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -115,6 +148,65 @@ function UnitsPage() {
           <Plus className="w-4 h-4 ml-2" /> יחידה חדשה
         </Button>
       </div>
+
+      <Card className="p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-bold">בקשות לפתיחת יחידה חדשה</h2>
+            <p className="text-sm text-muted-foreground">משתמשים חדשים יכולים לבקש יחידה חדשה. אישור יוצר יחידה ומגדיר אותם כמנהל/בעל יחידה.</p>
+          </div>
+          <span className="rounded-full bg-primary/10 px-3 py-1 text-sm text-primary">
+            {pendingRegistrationRequests.length} ממתינות
+          </span>
+        </div>
+        {requestsLoading ? (
+          <div className="text-sm text-muted-foreground">טוען בקשות...</div>
+        ) : pendingRegistrationRequests.length ? (
+          <div className="space-y-2">
+            {pendingRegistrationRequests.map((request: any) => (
+              <div key={request.id} className="rounded-xl border bg-background/70 p-3">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="space-y-1">
+                    <div className="font-semibold">{request.requested_unit_name}</div>
+                    <div className="text-xs text-muted-foreground" dir="ltr">
+                      {request.requested_unit_code || "no-code"} · {request.requested_admin_email}
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      איש קשר: {request.contact_name}{request.contact_phone ? ` · ${request.contact_phone}` : ""}
+                    </div>
+                    {request.description && <div className="text-sm">{request.description}</div>}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={() => resolveRegistrationRequest(request, "approved")}>
+                      <Check className="w-4 h-4 ml-1" /> אשר
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => resolveRegistrationRequest(request, "rejected")}>
+                      <X className="w-4 h-4 ml-1" /> דחה
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl bg-muted/60 p-3 text-sm text-muted-foreground">אין בקשות פתיחת יחידה שממתינות לאישור.</div>
+        )}
+        {recentClosedRegistrationRequests.length > 0 && (
+          <div className="border-t pt-3">
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+              <Clock className="w-3.5 h-3.5" /> בקשות שטופלו לאחרונה
+            </div>
+            <div className="grid gap-2 md:grid-cols-2">
+              {recentClosedRegistrationRequests.map((request: any) => (
+                <div key={request.id} className="rounded-lg bg-muted/50 px-3 py-2 text-sm">
+                  <div className="font-medium">{request.requested_unit_name}</div>
+                  <div className="text-xs text-muted-foreground">{request.status === "approved" ? "אושרה" : "נדחתה"} · {request.requested_admin_email}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Card>
 
       <div className="relative">
         <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />

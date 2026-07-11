@@ -139,6 +139,30 @@ function mapUnitForClient(unit: any, role: string, isPlatformOwner = false) {
   };
 }
 
+function mapUnitRegistrationRequestForClient(row: any) {
+  return {
+    id: row.id,
+    requested_unit_name: row.requested_unit_name ?? "",
+    requested_unit_code: row.requested_unit_code ?? "",
+    contact_name: row.contact_name ?? "",
+    contact_email: row.contact_email ?? "",
+    contact_phone: row.contact_phone ?? "",
+    requested_admin_name: row.requested_admin_name ?? "",
+    requested_admin_email: row.requested_admin_email ?? "",
+    requested_admin_user_id: row.requested_admin_user_id ?? null,
+    description: row.description ?? "",
+    logo_url: row.logo_url ?? "",
+    accepted_terms: row.accepted_terms === true,
+    status: row.status ?? "pending",
+    review_notes: row.review_notes ?? "",
+    reviewed_by: row.reviewed_by ?? null,
+    reviewed_at: row.reviewed_at ?? null,
+    created_unit_id: row.created_unit_id ?? null,
+    created_at: row.created_at ?? null,
+    updated_at: row.updated_at ?? null,
+  };
+}
+
 async function assertCanAccessUnit(supabaseAdmin: any, userId: string, unitId: string) {
   const globalRole = await getGlobalUserRole(userId);
   if (globalRole === "OWNER") return { role: "PLATFORM_OWNER", isPlatformOwner: true };
@@ -392,6 +416,290 @@ export const createUnit = createServerFn({ method: "POST" })
       role: "PLATFORM_OWNER",
       is_platform_owner: true,
     };
+  });
+
+export const listMyUnitRegistrationRequests = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(context.userId);
+    const email = authUser?.user?.email?.toLowerCase() ?? "";
+    let query = supabaseAdmin
+      .from("unit_registration_requests")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (email) {
+      query = query.or(`requested_admin_user_id.eq.${context.userId},contact_email.eq.${email},requested_admin_email.eq.${email}`);
+    } else {
+      query = query.eq("requested_admin_user_id", context.userId);
+    }
+
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+    return (data ?? []).map(mapUnitRegistrationRequestForClient);
+  });
+
+export const submitUnitRegistrationRequest = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z.object({
+      requested_unit_name: z.string().trim().min(2).max(120),
+      requested_unit_code: z.string().trim().max(40).optional().default(""),
+      contact_name: z.string().trim().min(2).max(120),
+      contact_phone: z.string().trim().max(40).optional().default(""),
+      requested_admin_name: z.string().trim().max(120).optional().default(""),
+      requested_admin_email: z.string().trim().email().max(254).optional(),
+      description: z.string().trim().max(1000).optional().default(""),
+      accepted_terms: z.literal(true),
+    }).parse(input)
+  )
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.getUserById(context.userId);
+    if (authError) throw new Error(authError.message);
+
+    const currentEmail = authUser?.user?.email?.trim().toLowerCase() ?? "";
+    const requestedAdminEmail = (data.requested_admin_email || currentEmail).trim().toLowerCase();
+    if (!requestedAdminEmail) throw new Error("לא נמצא אימייל לחשבון. יש להתחבר עם חשבון אימייל תקין.");
+
+    const normalizedCode = data.requested_unit_code.trim() ? data.requested_unit_code.trim().toUpperCase() : null;
+    const normalizedName = data.requested_unit_name.trim();
+
+    const duplicateChecks = [
+      supabaseAdmin
+        .from("unit_registration_requests")
+        .select("id, status, requested_unit_name, requested_unit_code, created_at, review_notes")
+        .eq("status", "pending")
+        .eq("requested_admin_user_id", context.userId)
+        .limit(1),
+      supabaseAdmin
+        .from("unit_registration_requests")
+        .select("id, status, requested_unit_name, requested_unit_code, created_at, review_notes")
+        .eq("status", "pending")
+        .ilike("requested_admin_email", requestedAdminEmail)
+        .limit(1),
+      supabaseAdmin
+        .from("unit_registration_requests")
+        .select("id, status, requested_unit_name, requested_unit_code, created_at, review_notes")
+        .eq("status", "pending")
+        .ilike("requested_unit_name", normalizedName)
+        .limit(1),
+    ];
+    if (normalizedCode) {
+      duplicateChecks.push(
+        supabaseAdmin
+          .from("unit_registration_requests")
+          .select("id, status, requested_unit_name, requested_unit_code, created_at, review_notes")
+          .eq("status", "pending")
+          .ilike("requested_unit_code", normalizedCode)
+          .limit(1)
+      );
+    }
+
+    const duplicateResults = await Promise.all(duplicateChecks);
+    const duplicateError = duplicateResults.find((result: any) => result.error)?.error;
+    if (duplicateError) throw new Error(duplicateError.message);
+    const existingPending = duplicateResults.map((result: any) => result.data?.[0]).find(Boolean);
+    if (existingPending) {
+      return { ok: true, status: "pending", duplicate_blocked: true, request: mapUnitRegistrationRequestForClient(existingPending) };
+    }
+
+    if (normalizedCode) {
+      const { data: unitWithCode, error: codeError } = await supabaseAdmin
+        .from("units")
+        .select("id, name, code")
+        .eq("code", normalizedCode)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (codeError) throw new Error(codeError.message);
+      if (unitWithCode?.id) throw new Error("כבר קיימת יחידה עם הקוד הזה. אפשר לשלוח בקשת גישה ליחידה הקיימת.");
+    }
+
+    const now = new Date().toISOString();
+    const { data: inserted, error } = await supabaseAdmin
+      .from("unit_registration_requests")
+      .insert({
+        requested_unit_name: normalizedName,
+        requested_unit_code: normalizedCode,
+        contact_name: data.contact_name,
+        contact_email: currentEmail || requestedAdminEmail,
+        contact_phone: data.contact_phone || null,
+        requested_admin_name: data.requested_admin_name || data.contact_name,
+        requested_admin_email: requestedAdminEmail,
+        requested_admin_user_id: context.userId,
+        description: data.description || null,
+        accepted_terms: true,
+        status: "pending",
+        updated_at: now,
+      })
+      .select("*")
+      .single();
+    if (error) throw new Error(error.message);
+
+    await supabaseAdmin.from("audit_log").insert({
+      action_type: "UNIT_REGISTRATION_REQUEST_SUBMITTED",
+      target_type: "unit_registration_request",
+      target_id: inserted?.id,
+      performed_by_user_id: context.userId,
+      new_value: {
+        requested_unit_name: normalizedName,
+        requested_unit_code: normalizedCode,
+        requested_admin_email: requestedAdminEmail,
+      },
+    } as any);
+
+    return { ok: true, status: "pending", request: mapUnitRegistrationRequestForClient(inserted) };
+  });
+
+export const listUnitRegistrationRequests = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const role = await getGlobalUserRole(context.userId);
+    if (role !== "OWNER") throw new Error("רק בעל המערכת יכול לנהל בקשות לפתיחת יחידה");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data, error } = await supabaseAdmin
+      .from("unit_registration_requests")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(100);
+    if (error) throw new Error(error.message);
+    return (data ?? []).map(mapUnitRegistrationRequestForClient);
+  });
+
+export const resolveUnitRegistrationRequest = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z.object({
+      request_id: z.string().uuid(),
+      decision: z.enum(["approved", "rejected"]),
+      review_notes: z.string().trim().max(500).optional().default(""),
+    }).parse(input)
+  )
+  .handler(async ({ data, context }) => {
+    const role = await getGlobalUserRole(context.userId);
+    if (role !== "OWNER") throw new Error("רק בעל המערכת יכול לאשר או לדחות פתיחת יחידה");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const { data: request, error: requestError } = await supabaseAdmin
+      .from("unit_registration_requests")
+      .select("*")
+      .eq("id", data.request_id)
+      .maybeSingle();
+    if (requestError) throw new Error(requestError.message);
+    if (!request) throw new Error("בקשת פתיחת היחידה לא נמצאה");
+    if (request.status !== "pending") {
+      return { ok: true, status: request.status, request: mapUnitRegistrationRequestForClient(request) };
+    }
+
+    const now = new Date().toISOString();
+
+    if (data.decision === "rejected") {
+      const { data: updated, error } = await supabaseAdmin
+        .from("unit_registration_requests")
+        .update({
+          status: "rejected",
+          review_notes: data.review_notes || null,
+          reviewed_by: context.userId,
+          reviewed_at: now,
+          updated_at: now,
+        })
+        .eq("id", data.request_id)
+        .eq("status", "pending")
+        .select("*")
+        .single();
+      if (error) throw new Error(error.message);
+      await supabaseAdmin.from("audit_log").insert({
+        action_type: "UNIT_REGISTRATION_REQUEST_REJECTED",
+        target_type: "unit_registration_request",
+        target_id: data.request_id,
+        performed_by_user_id: context.userId,
+        new_value: { review_notes: data.review_notes || null },
+      } as any);
+      return { ok: true, status: "rejected", request: mapUnitRegistrationRequestForClient(updated) };
+    }
+
+    const normalizedCode = request.requested_unit_code ? String(request.requested_unit_code).trim().toUpperCase() : null;
+    if (normalizedCode) {
+      const { data: existingUnit, error: codeError } = await supabaseAdmin
+        .from("units")
+        .select("id, name")
+        .eq("code", normalizedCode)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (codeError) throw new Error(codeError.message);
+      if (existingUnit?.id) throw new Error("כבר קיימת יחידה עם הקוד הזה. יש לדחות את הבקשה או לעדכן את הקוד.");
+    }
+
+    const { data: unit, error: unitError } = await supabaseAdmin
+      .from("units")
+      .insert({
+        name: request.requested_unit_name,
+        code: normalizedCode,
+        logo_url: request.logo_url || null,
+        contact_phone: request.contact_phone || null,
+        active: true,
+        status: "active",
+        setup_status: "pending_setup",
+        updated_at: now,
+      })
+      .select("id, name, code")
+      .single();
+    if (unitError) throw new Error(unitError.message);
+
+    await supabaseAdmin.from("unit_memberships").upsert({
+      user_id: context.userId,
+      unit_id: unit.id,
+      role: "PLATFORM_OWNER",
+      is_active: true,
+      updated_at: now,
+    }, { onConflict: "user_id,unit_id" });
+
+    if (request.requested_admin_user_id) {
+      await supabaseAdmin.from("unit_memberships").upsert({
+        user_id: request.requested_admin_user_id,
+        unit_id: unit.id,
+        role: "UNIT_OWNER",
+        is_active: true,
+        updated_at: now,
+      }, { onConflict: "user_id,unit_id" });
+      await supabaseAdmin.from("user_active_contexts").upsert({
+        user_id: request.requested_admin_user_id,
+        active_unit_id: unit.id,
+        active_team_id: null,
+        updated_at: now,
+      }, { onConflict: "user_id" });
+    }
+
+    const { data: updated, error: updateError } = await supabaseAdmin
+      .from("unit_registration_requests")
+      .update({
+        status: "approved",
+        review_notes: data.review_notes || null,
+        reviewed_by: context.userId,
+        reviewed_at: now,
+        created_unit_id: unit.id,
+        updated_at: now,
+      })
+      .eq("id", data.request_id)
+      .eq("status", "pending")
+      .select("*")
+      .single();
+    if (updateError) throw new Error(updateError.message);
+
+    await supabaseAdmin.from("audit_log").insert({
+      action_type: "UNIT_REGISTRATION_REQUEST_APPROVED",
+      target_type: "unit_registration_request",
+      target_id: data.request_id,
+      performed_by_user_id: context.userId,
+      new_value: {
+        created_unit_id: unit.id,
+        requested_admin_user_id: request.requested_admin_user_id ?? null,
+        review_notes: data.review_notes || null,
+      },
+    } as any);
+
+    return { ok: true, status: "approved", unit_id: unit.id, request: mapUnitRegistrationRequestForClient(updated) };
   });
 
 export const listOwnerUnits = createServerFn({ method: "POST" })
