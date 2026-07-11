@@ -38,6 +38,7 @@ The app now separates platform ownership from day-to-day Unit user approval:
 - Owner users should not need to approve every normal user. Owner approval is only for Unit-level lifecycle and platform-wide control.
 - Unit admin access checks must read `unit_memberships`, not only legacy/global `user_roles`.
 - If a non-owner Unit admin has no active Unit selected, `assertActiveUnit` auto-selects their first accessible Unit so original-unit admins do not see empty admin screens.
+- All pre-multitenant/original data belongs to the `ORIGINAL` Unit. If a legacy row has a Team, derive `unit_id` from that Team; if it has no usable Team, attach it to `ORIGINAL`. The repair migration is `supabase/migrations/20260711172000_original_unit_legacy_data_backfill.sql`.
 
 Role level model:
 
