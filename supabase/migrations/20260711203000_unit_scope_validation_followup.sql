@@ -182,7 +182,7 @@ FROM public.replacement_requests rr
 JOIN public.teams t ON t.id = rr.team_id
 WHERE rr.unit_id IS DISTINCT FROM t.unit_id
 UNION ALL
-SELECT 'team_replacement_item_team_unit_mismatch', tri.id::text, tri.item_name
+SELECT 'team_replacement_item_team_unit_mismatch', tri.id::text, tri.id::text
 FROM public.team_replacement_items tri
 JOIN public.teams t ON t.id = tri.team_id
 WHERE tri.unit_id IS DISTINCT FROM t.unit_id
