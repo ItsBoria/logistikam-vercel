@@ -29,12 +29,12 @@ function Home() {
   const claimFirstAdminFn = useServerFn(claimConfiguredFirstAdmin);
   const landingQ = useQuery({
     enabled: !!session,
-    queryKey: ["my-landing-context", session?.user.id],
+    queryKey: ["my-landing-context", session?.user?.id],
     queryFn: () => landingFn(),
   });
   const firstAdminQ = useQuery({
     enabled: !!session && !landingQ.isLoading && !!landingQ.data && !landingQ.data.hasAccess,
-    queryKey: ["claim-configured-first-admin", session?.user.id],
+    queryKey: ["claim-configured-first-admin", session?.user?.id],
     queryFn: () => claimFirstAdminFn(),
     retry: false,
     staleTime: Infinity,

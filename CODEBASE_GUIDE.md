@@ -847,7 +847,7 @@ Before changing code:
 
 ## Recent troubleshooting notes
 
-- 2026-07-11: Login/registration could show the app error screen with `Cannot read properties of null (reading 'user')` when Supabase auth was still loading and `session` was temporarily `null`. Keep route/component code defensive around `session?.user`, especially in `select-team.tsx` and shell/header components that render before auth is fully resolved.
+- 2026-07-11: Login/registration could show the app error screen with `Cannot read properties of null (reading 'user')` when Supabase auth was still loading and `session` or `session.user` was temporarily `null`. Keep route/component/hook code defensive around auth state with `session?.user?.id`, `session?.user?.email`, and `session?.user?.user_metadata`, especially in landing, team selection, admin shell, and role-loading code that can render before auth is fully resolved.
 
 ## Common commands for future agents
 

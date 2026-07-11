@@ -20,8 +20,8 @@ export function useAdminRoles() {
   const { session } = useSupabaseSession();
   const fn = useServerFn(getMyAdminRoles);
   const q = useQuery({
-    enabled: !!session,
-    queryKey: ["my-admin-roles", session?.user.id],
+    enabled: !!session?.user,
+    queryKey: ["my-admin-roles", session?.user?.id],
     queryFn: () => fn(),
     staleTime: 60_000,
   });

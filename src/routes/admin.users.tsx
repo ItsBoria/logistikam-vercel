@@ -177,7 +177,7 @@ function Admins() {
         <TabsContent value="system" className="mt-4">
           <Card className="divide-y">
             {admins?.map((a: any) => {
-              const isMe = a.user_id === session?.user.id;
+              const isMe = a.user_id === session?.user?.id;
               const isAdmin = a.is_admin;
               const teamNames = (a.teams ?? []).map((team: any) => team.name).filter(Boolean).join(", ");
               return (
@@ -244,7 +244,7 @@ function Admins() {
               <div className="p-8 text-center text-muted-foreground text-sm">טוען...</div>
             )}
             {searchResults?.map((u: any) => {
-              const isMe = u.id === session?.user.id;
+              const isMe = u.id === session?.user?.id;
               const initials = (u.displayName || u.email || "?").trim().charAt(0).toUpperCase();
               const roleLabel = u.currentRole === "OWNER" ? "בעלים" : u.currentRole === "WORK_MANAGER" ? "מנהל עבודה" : u.currentRole === "ADMIN" ? "נגד לוגיסטיקה" : "משתמש";
               const roleClass = u.currentRole !== "USER"

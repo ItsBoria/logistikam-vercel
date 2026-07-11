@@ -83,7 +83,7 @@ const DAY_NAMES = ["ראשון", "שני", "שלישי", "רביעי", "חמיש
 function Calendar() {
   const qc = useQueryClient();
   const { session } = useSupabaseSession();
-  const myId = session?.user.id ?? "";
+  const myId = session?.user?.id ?? "";
   const today = useMemo(() => getWorkweekForInstant(), []);
   const [year, setYear] = useState(today.year);
   const [week, setWeek] = useState(today.week);
