@@ -100,6 +100,18 @@ function SelectTeam() {
         <Card className="p-6 shadow-xl space-y-4">
           {unitsLoading ? (
             <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+          ) : !(units ?? []).length ? (
+            <div className="space-y-4 text-center">
+              <div className="rounded-xl bg-muted/70 p-4 text-sm text-muted-foreground">
+                לא נמצאה לך גישה פעילה ליחידה. אם נרשמת עכשיו, צריך שבעל המערכת או מנהל היחידה יאשרו וישייכו אותך ליחידה/צוות.
+              </div>
+              <Button variant="ghost" className="w-full" onClick={async () => {
+                await supabase.auth.signOut();
+                navigate({ to: "/", replace: true });
+              }}>
+                <LogOut className="w-4 h-4 ml-2" /> יציאה
+              </Button>
+            </div>
           ) : (
             <>
               <Select value={unitId} onValueChange={onUnitChange}>

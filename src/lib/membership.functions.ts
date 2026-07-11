@@ -5,6 +5,8 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 type RoleCode = "OWNER" | "WORK_MANAGER" | "ADMIN" | "USER";
 
 const UNIT_ADMIN_ROLES = new Set(["PLATFORM_OWNER", "UNIT_OWNER", "WORK_MANAGER", "LOGISTICS_NCO", "UNIT_ADMIN"]);
+const SELECTABLE_UNIT_FILTER = "id, name, code, logo_url, accent_color, active, contact_phone, settings, created_at, updated_at, status, setup_status, deleted_at";
+const OWNER_UNIT_FILTER = "id, name, code, logo_url, cover_image_url, contact_phone, accent_color, active, enabled_modules, settings, created_at, updated_at, status, setup_status, deleted_at";
 
 export type UnitContext = {
   unit_id: string;
@@ -84,6 +86,29 @@ async function getUnitMembership(supabaseAdmin: any, userId: string, unitId: str
   return data as { unit_id: string; role: string; is_active: boolean } | null;
 }
 
+function isSelectableUnit(unit: any) {
+  if (!unit) return false;
+  if (unit.deleted_at) return false;
+  if (unit.status && !["active", "pending_setup", "ready"].includes(String(unit.status))) return false;
+  return unit.active !== false;
+}
+
+function mapUnitForClient(unit: any, role: string, isPlatformOwner = false) {
+  return {
+    unit_id: unit.id,
+    unit_name: unit.name,
+    unit_code: unit.code ?? null,
+    logo_url: unit.logo_url ?? null,
+    accent_color: unit.accent_color ?? null,
+    contact_phone: unit.contact_phone ?? null,
+    active: unit.active !== false,
+    status: unit.status ?? (unit.active === false ? "inactive" : "active"),
+    setup_status: unit.setup_status ?? null,
+    role,
+    is_platform_owner: isPlatformOwner,
+  };
+}
+
 async function assertCanAccessUnit(supabaseAdmin: any, userId: string, unitId: string) {
   const globalRole = await getGlobalUserRole(userId);
   if (globalRole === "OWNER") return { role: "PLATFORM_OWNER", isPlatformOwner: true };
@@ -142,39 +167,56 @@ export const listActiveUnits = createServerFn({ method: "GET" })
     if (globalRole === "OWNER") {
       const { data } = await supabaseAdmin
         .from("units")
-        .select("id, name, code, logo_url, accent_color")
-        .eq("active", true)
+        .select(SELECTABLE_UNIT_FILTER)
+        .is("deleted_at", null)
+        .neq("status", "deleted")
         .order("name");
-      return (data ?? []).map((u: any) => ({
-        unit_id: u.id,
-        unit_name: u.name,
-        unit_code: u.code ?? null,
-        logo_url: u.logo_url ?? null,
-        accent_color: u.accent_color ?? null,
-        role: "PLATFORM_OWNER",
-        is_platform_owner: true,
-      }));
+      return (data ?? [])
+        .filter(isSelectableUnit)
+        .map((u: any) => mapUnitForClient(u, "PLATFORM_OWNER", true));
     }
 
-    const { data } = await supabaseAdmin
+    const { data: membershipRows } = await supabaseAdmin
       .from("unit_memberships")
-      .select("role, units(id, name, code, logo_url, accent_color, active)")
+      .select(`role, units(${SELECTABLE_UNIT_FILTER})`)
       .eq("user_id", context.userId)
       .eq("is_active", true)
       .order("created_at", { ascending: true });
 
-    return (data ?? [])
+    const unitsById = new Map<string, any>();
+
+    for (const { row, unit } of (membershipRows ?? [])
       .map((row: any) => ({ row, unit: row.units }))
-      .filter(({ unit }: any) => unit?.active)
-      .map(({ row, unit }: any) => ({
-        unit_id: unit.id,
-        unit_name: unit.name,
-        unit_code: unit.code ?? null,
-        logo_url: unit.logo_url ?? null,
-        accent_color: unit.accent_color ?? null,
-        role: row.role,
-        is_platform_owner: false,
-      }));
+      .filter(({ unit }: any) => isSelectableUnit(unit))) {
+      unitsById.set(unit.id, mapUnitForClient(unit, row.role, false));
+    }
+
+    // Compatibility: imported/Lovable users may still only have legacy team_members
+    // or new team_memberships rows. Derive their Unit access instead of showing an
+    // empty selector.
+    const { data: teamMembershipRows } = await supabaseAdmin
+      .from("team_memberships")
+      .select(`role, units(${SELECTABLE_UNIT_FILTER})`)
+      .eq("user_id", context.userId)
+      .eq("is_active", true);
+    for (const { row, unit } of (teamMembershipRows ?? [])
+      .map((row: any) => ({ row, unit: row.units }))
+      .filter(({ unit }: any) => isSelectableUnit(unit))) {
+      if (!unitsById.has(unit.id)) unitsById.set(unit.id, mapUnitForClient(unit, row.role ?? "UNIT_USER", false));
+    }
+
+    const { data: legacyRows } = await supabaseAdmin
+      .from("team_members")
+      .select(`role, teams(unit_id, units(${SELECTABLE_UNIT_FILTER}))`)
+      .eq("user_id", context.userId)
+      .eq("is_active", true);
+    for (const { row, unit } of (legacyRows ?? [])
+      .map((row: any) => ({ row, unit: row.teams?.units }))
+      .filter(({ unit }: any) => isSelectableUnit(unit))) {
+      if (!unitsById.has(unit.id)) unitsById.set(unit.id, mapUnitForClient(unit, mapGlobalRoleToUnitRole(globalRole) || row.role || "UNIT_USER", false));
+    }
+
+    return Array.from(unitsById.values()).sort((a, b) => a.unit_name.localeCompare(b.unit_name, "he"));
   });
 
 export const getMyActiveUnit = createServerFn({ method: "GET" })
@@ -232,6 +274,7 @@ export const createUnit = createServerFn({ method: "POST" })
       name: z.string().trim().min(2).max(120),
       code: z.string().trim().max(40).optional().default(""),
       accent_color: z.string().trim().max(40).optional().default(""),
+      contact_phone: z.string().trim().max(40).optional().default(""),
     }).parse(input)
   )
   .handler(async ({ data, context }) => {
@@ -243,13 +286,16 @@ export const createUnit = createServerFn({ method: "POST" })
       name: data.name,
       code: data.code ? data.code.toUpperCase() : null,
       accent_color: data.accent_color || null,
+      contact_phone: data.contact_phone || null,
       active: true,
+      status: "active",
+      setup_status: "pending_setup",
       updated_at: new Date().toISOString(),
     };
     const { data: unit, error } = await supabaseAdmin
       .from("units")
       .insert(payload)
-      .select("id, name, code, logo_url, accent_color")
+      .select("id, name, code, logo_url, accent_color, contact_phone, status, setup_status")
       .single();
     if (error) throw new Error(error.message);
 
@@ -278,9 +324,112 @@ export const createUnit = createServerFn({ method: "POST" })
       unit_code: unit.code ?? null,
       logo_url: unit.logo_url ?? null,
       accent_color: unit.accent_color ?? null,
+      contact_phone: unit.contact_phone ?? null,
+      status: unit.status ?? "active",
+      setup_status: unit.setup_status ?? "pending_setup",
       role: "PLATFORM_OWNER",
       is_platform_owner: true,
     };
+  });
+
+export const listOwnerUnits = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({
+    query: z.string().trim().max(120).optional().default(""),
+    include_deleted: z.boolean().optional().default(false),
+  }).parse(input ?? {}))
+  .handler(async ({ data, context }) => {
+    const role = await getGlobalUserRole(context.userId);
+    if (role !== "OWNER") throw new Error("רק בעל המערכת יכול לנהל יחידות");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    let q = supabaseAdmin
+      .from("units")
+      .select(`${OWNER_UNIT_FILTER}, teams(id, name, active), unit_memberships(user_id, role, is_active)`)
+      .order("created_at", { ascending: false });
+    if (!data.include_deleted) q = q.is("deleted_at", null).neq("status", "deleted");
+    const { data: units, error } = await q;
+    if (error) throw new Error(error.message);
+    const term = data.query.toLowerCase();
+    return (units ?? [])
+      .filter((unit: any) => !term || [unit.name, unit.code, unit.contact_phone].some((v) => String(v ?? "").toLowerCase().includes(term)))
+      .map((unit: any) => ({
+        id: unit.id,
+        name: unit.name,
+        code: unit.code ?? "",
+        logo_url: unit.logo_url ?? "",
+        cover_image_url: unit.cover_image_url ?? "",
+        contact_phone: unit.contact_phone ?? "",
+        accent_color: unit.accent_color ?? "",
+        active: unit.active !== false,
+        status: unit.status ?? (unit.active === false ? "inactive" : "active"),
+        setup_status: unit.setup_status ?? "pending_setup",
+        deleted_at: unit.deleted_at ?? null,
+        teams_count: (unit.teams ?? []).length,
+        active_teams_count: (unit.teams ?? []).filter((t: any) => t.active !== false).length,
+        admins: (unit.unit_memberships ?? []).filter((m: any) => m.is_active && UNIT_ADMIN_ROLES.has(m.role)),
+        created_at: unit.created_at,
+        updated_at: unit.updated_at,
+      }));
+  });
+
+export const updateOwnerUnit = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({
+    id: z.string().uuid(),
+    name: z.string().trim().min(2).max(120),
+    code: z.string().trim().max(40).nullable().optional(),
+    logo_url: z.string().trim().max(500).nullable().optional(),
+    cover_image_url: z.string().trim().max(500).nullable().optional(),
+    contact_phone: z.string().trim().max(40).nullable().optional(),
+    accent_color: z.string().trim().max(40).nullable().optional(),
+    active: z.boolean(),
+    status: z.enum(["active", "pending_setup", "ready", "inactive"]).optional().default("active"),
+    setup_status: z.enum(["pending_setup", "ready", "active", "inactive"]).optional().default("pending_setup"),
+  }).parse(input))
+  .handler(async ({ data, context }) => {
+    const role = await getGlobalUserRole(context.userId);
+    if (role !== "OWNER") throw new Error("רק בעל המערכת יכול לערוך יחידות");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin
+      .from("units")
+      .update({
+        name: data.name,
+        code: data.code ? data.code.toUpperCase() : null,
+        logo_url: data.logo_url || null,
+        cover_image_url: data.cover_image_url || null,
+        contact_phone: data.contact_phone || null,
+        accent_color: data.accent_color || null,
+        active: data.active,
+        status: data.active ? data.status : "inactive",
+        setup_status: data.setup_status,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", data.id)
+      .is("deleted_at", null);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const softDeleteOwnerUnit = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const role = await getGlobalUserRole(context.userId);
+    if (role !== "OWNER") throw new Error("רק בעל המערכת יכול למחוק יחידות");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const now = new Date().toISOString();
+    const { error } = await supabaseAdmin
+      .from("units")
+      .update({ active: false, status: "deleted", deleted_at: now, updated_at: now })
+      .eq("id", data.id)
+      .is("deleted_at", null);
+    if (error) throw new Error(error.message);
+    await supabaseAdmin.from("user_active_contexts").update({
+      active_unit_id: null,
+      active_team_id: null,
+      updated_at: now,
+    }).eq("active_unit_id", data.id);
+    return { ok: true };
   });
 
 export const listTeamsForActiveUnit = createServerFn({ method: "GET" })

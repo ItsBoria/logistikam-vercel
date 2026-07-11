@@ -147,7 +147,7 @@ Routes are file-based under `src/routes`.
   Team/unit management.
 
 - `src/routes/admin.units.tsx`  
-  Owner-only Unit creation/listing page. Creating a Unit also selects it as the active Unit for the Owner.
+  Owner-only Unit management page. Supports search, create, edit branding/contact/status, deactivate, and soft-delete. Creating a Unit also selects it as the active Unit for the Owner.
 
 - `src/routes/admin.users.tsx`  
   User/admin management and team assignment.
@@ -270,6 +270,7 @@ Current behavior:
 
 - Active Unit/Team context is stored server-side in `user_active_contexts`.
 - `OWNER` is treated as platform owner and may select any active Unit.
+- Unit listing also includes compatibility fallbacks from `team_memberships` and legacy `team_members` so imported users do not see a blank Unit selector before memberships are fully normalized.
 - Unit admins (`UNIT_OWNER`, `WORK_MANAGER`, `LOGISTICS_NCO`, `UNIT_ADMIN`) can access all active Teams inside their active Unit.
 - Normal users must have explicit `team_memberships` rows to access a Team.
 - Legacy `team_members` remains only as a compatibility bridge for older flows and imported data.
@@ -296,6 +297,7 @@ Do not rename Teams to Units. Do not remove Teams. Do not treat Teams as the ten
 New migration:
 
 - `supabase/migrations/20260711100000_units_team_memberships_foundation.sql`
+- `supabase/migrations/20260711143000_unit_lifecycle_registration_faults.sql`
 
 This migration adds:
 
@@ -307,6 +309,16 @@ This migration adds:
 - `team_products`
 - `unit_id` compatibility columns on many existing operational tables
 - `unit_team_integrity_issues` validation view
+
+The lifecycle/registration/fault migration adds:
+
+- `units.status`
+- `units.setup_status`
+- `units.deleted_at`
+- `unit_registration_requests`
+- `construction_faults`
+- Owner-aware RLS helper/policies
+- `unit_integrity_validation` validation view
 
 Current unit-owned tables include or should include:
 
