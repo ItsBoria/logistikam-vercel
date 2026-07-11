@@ -126,7 +126,7 @@ Routes are file-based under `src/routes`.
   Admin login page.
 
 - `src/routes/admin.index.tsx`  
-  Admin dashboard/home page.
+  Admin dashboard/home page. It must not load unit-scoped dashboard data until an active Unit exists and is selected. Owner users see a first-unit setup card when no active Unit is available.
 
 - `src/routes/admin.orders.tsx`  
   Admin order management.
@@ -145,6 +145,9 @@ Routes are file-based under `src/routes`.
 
 - `src/routes/admin.teams.tsx`  
   Team/unit management.
+
+- `src/routes/admin.units.tsx`  
+  Owner-only Unit creation/listing page. Creating a Unit also selects it as the active Unit for the Owner.
 
 - `src/routes/admin.users.tsx`  
   User/admin management and team assignment.
@@ -173,7 +176,7 @@ Routes are file-based under `src/routes`.
   Store/mobile bottom navigation. Includes cart pill behavior and cart context integration.
 
 - `src/components/admin-bottom-tab-bar.tsx`  
-  Admin mobile navigation.
+  Admin mobile navigation. Unit-scoped badge queries must be disabled until an active Unit is selected.
 
 - `src/components/brand-logo.tsx`  
   Logo rendering.

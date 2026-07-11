@@ -5,13 +5,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AdminShell } from "@/components/admin-shell";
 import { getAdminDashboard, setTeamMonthlyLimit } from "@/lib/admin-dashboard.functions";
 import { updateOrderStatus, getAppSettings, setDefaultLowStockThreshold } from "@/lib/admin.functions";
+import { createUnit, getMyActiveUnit, listActiveUnits } from "@/lib/membership.functions";
 import { useAdminRoles } from "@/hooks/use-admin-roles";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency } from "@/lib/pricing";
-import { Loader2, ShoppingBag, Clock, DollarSign, Users, AlertTriangle, Pencil, Check, X, Package, Replace, Settings, Timer, TrendingDown } from "lucide-react";
+import { Loader2, ShoppingBag, Clock, DollarSign, Users, AlertTriangle, Pencil, Check, X, Package, Replace, Settings, Timer, TrendingDown, Building2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useAdminPreferences } from "@/hooks/use-admin-preferences";
 import type { DashboardWidget } from "@/lib/admin-preferences.functions";
@@ -51,15 +52,29 @@ function DashboardPage() {
   const statusFn = useServerFn(updateOrderStatus);
   const settingsFn = useServerFn(getAppSettings);
   const setThresholdFn = useServerFn(setDefaultLowStockThreshold);
+  const activeUnitFn = useServerFn(getMyActiveUnit);
+  const listUnitsFn = useServerFn(listActiveUnits);
+  const createUnitFn = useServerFn(createUnit);
+
+  const { data: activeUnit, isLoading: activeUnitLoading } = useQuery({
+    queryKey: ["active-unit"],
+    queryFn: () => activeUnitFn(),
+  });
+  const { data: units, isLoading: unitsLoading } = useQuery({
+    queryKey: ["active-units"],
+    queryFn: () => listUnitsFn(),
+  });
 
   const { data, isLoading } = useQuery({
-    queryKey: ["admin-dashboard"],
+    queryKey: ["admin-dashboard", activeUnit?.unit_id ?? "none"],
     queryFn: () => dashFn(),
+    enabled: !!activeUnit?.unit_id,
     staleTime: 30_000,
   });
   const { data: settings } = useQuery({
-    queryKey: ["app-settings"],
+    queryKey: ["app-settings", activeUnit?.unit_id ?? "none"],
     queryFn: () => settingsFn(),
+    enabled: !!activeUnit?.unit_id,
     staleTime: 60_000,
   });
 
@@ -67,6 +82,60 @@ function DashboardPage() {
   const [limitValue, setLimitValue] = useState<string>("");
   const [editingThreshold, setEditingThreshold] = useState(false);
   const [thresholdValue, setThresholdValue] = useState<string>("");
+  const [unitName, setUnitName] = useState("");
+  const [unitCode, setUnitCode] = useState("");
+
+  async function createFirstUnit() {
+    try {
+      await createUnitFn({ data: { name: unitName, code: unitCode } });
+      toast.success("היחידה נוצרה");
+      setUnitName("");
+      setUnitCode("");
+      qc.invalidateQueries({ queryKey: ["active-units"] });
+      qc.invalidateQueries({ queryKey: ["active-unit"] });
+      qc.invalidateQueries({ queryKey: ["admin-dashboard"] });
+    } catch (e: any) {
+      toast.error(e.message || "שגיאה ביצירת יחידה");
+    }
+  }
+
+  if (activeUnitLoading || unitsLoading) {
+    return <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
+  }
+
+  if (!activeUnit?.unit_id) {
+    const hasUnits = (units ?? []).length > 0;
+    return (
+      <Card className="max-w-2xl mx-auto mt-10 p-6 text-center space-y-5 admin-card">
+        <div className="mx-auto w-14 h-14 rounded-2xl bg-primary/10 text-primary flex items-center justify-center">
+          <Building2 className="w-7 h-7" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold">בחר יחידה פעילה</h1>
+          <p className="text-sm text-muted-foreground mt-2">
+            {hasUnits
+              ? "יש יחידות במערכת, אבל עדיין לא נבחרה יחידה פעילה. בחר יחידה מהתפריט העליון כדי לראות את הנתונים שלה."
+              : "עדיין אין יחידות במערכת. בעל המערכת צריך ליצור את היחידה הראשונה, ואז להוסיף לה צוותים."}
+          </p>
+        </div>
+        {myRoles?.isOwner && (
+          <div className="grid gap-3 text-right">
+            <div>
+              <label className="text-sm">שם יחידה</label>
+              <Input value={unitName} onChange={(e) => setUnitName(e.target.value)} placeholder="לדוגמה: גדוד לוגיסטיקה" />
+            </div>
+            <div>
+              <label className="text-sm">קוד יחידה, אופציונלי</label>
+              <Input value={unitCode} onChange={(e) => setUnitCode(e.target.value)} placeholder="לדוגמה: LOG-1" dir="ltr" />
+            </div>
+            <Button onClick={createFirstUnit} disabled={unitName.trim().length < 2}>
+              <Plus className="w-4 h-4 ml-2" /> צור יחידה
+            </Button>
+          </div>
+        )}
+      </Card>
+    );
+  }
 
   if (isLoading || !data) {
     return <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;

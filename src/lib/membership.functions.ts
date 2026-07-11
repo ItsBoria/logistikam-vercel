@@ -225,6 +225,64 @@ export const setMyUnit = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export const createUnit = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z.object({
+      name: z.string().trim().min(2).max(120),
+      code: z.string().trim().max(40).optional().default(""),
+      accent_color: z.string().trim().max(40).optional().default(""),
+    }).parse(input)
+  )
+  .handler(async ({ data, context }) => {
+    const role = await getGlobalUserRole(context.userId);
+    if (role !== "OWNER") throw new Error("רק בעל המערכת יכול ליצור יחידות");
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const payload = {
+      name: data.name,
+      code: data.code ? data.code.toUpperCase() : null,
+      accent_color: data.accent_color || null,
+      active: true,
+      updated_at: new Date().toISOString(),
+    };
+    const { data: unit, error } = await supabaseAdmin
+      .from("units")
+      .insert(payload)
+      .select("id, name, code, logo_url, accent_color")
+      .single();
+    if (error) throw new Error(error.message);
+
+    await supabaseAdmin
+      .from("unit_memberships")
+      .upsert({
+        user_id: context.userId,
+        unit_id: unit.id,
+        role: "PLATFORM_OWNER",
+        is_active: true,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id,unit_id" });
+
+    await supabaseAdmin
+      .from("user_active_contexts")
+      .upsert({
+        user_id: context.userId,
+        active_unit_id: unit.id,
+        active_team_id: null,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id" });
+
+    return {
+      unit_id: unit.id,
+      unit_name: unit.name,
+      unit_code: unit.code ?? null,
+      logo_url: unit.logo_url ?? null,
+      accent_color: unit.accent_color ?? null,
+      role: "PLATFORM_OWNER",
+      is_platform_owner: true,
+    };
+  });
+
 export const listTeamsForActiveUnit = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {

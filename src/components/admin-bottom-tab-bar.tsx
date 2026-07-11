@@ -4,10 +4,11 @@ import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard, ShoppingBag, Package, Boxes, Users,
-  MoreHorizontal, Replace, Bell, UserCog, CalendarDays, Settings2, WalletCards, ClipboardList,
+  MoreHorizontal, Replace, Bell, UserCog, CalendarDays, Settings2, WalletCards, ClipboardList, Building2,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { getAdminDashboard } from "@/lib/admin-dashboard.functions";
+import { getMyActiveUnit } from "@/lib/membership.functions";
 
 type Item = { to: string; label: string; icon: any; exact?: boolean };
 
@@ -91,6 +92,7 @@ export function AdminBottomTabBar({ role }: { role: "OWNER" | "WORK_MANAGER" | "
   });
   const moreItems = [
     ...(role === "OWNER" ? [
+      { to: "/admin/units", label: "יחידות", icon: Building2 },
       { to: "/admin/audit", label: "יומן פעילות", icon: ClipboardList },
     ] : []),
     ...(canManageBudgets ? [
@@ -101,10 +103,15 @@ export function AdminBottomTabBar({ role }: { role: "OWNER" | "WORK_MANAGER" | "
   ];
 
   const dashFn = useServerFn(getAdminDashboard);
+  const activeUnitFn = useServerFn(getMyActiveUnit);
+  const { data: activeUnit } = useQuery({
+    queryKey: ["active-unit"],
+    queryFn: () => activeUnitFn(),
+  });
   const { data: dash } = useQuery({
-    queryKey: ["admin-dashboard-badge"],
+    queryKey: ["admin-dashboard-badge", activeUnit?.unit_id ?? "none"],
     queryFn: () => dashFn(),
-    enabled: isAdmin,
+    enabled: isAdmin && !!activeUnit?.unit_id,
     refetchInterval: 30_000,
     staleTime: 15_000,
   });
