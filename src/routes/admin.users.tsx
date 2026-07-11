@@ -149,7 +149,7 @@ function Admins() {
         <Button onClick={() => setCreating(true)}><Plus className="w-4 h-4 ml-2" /> משתמש חדש</Button>
       </div>
 
-      <Tabs defaultValue="system" className="w-full">
+      <Tabs defaultValue="requests" className="w-full">
         <TabsList>
           <TabsTrigger value="requests">בקשות גישה</TabsTrigger>
           <TabsTrigger value="system">משתמשי מערכת</TabsTrigger>

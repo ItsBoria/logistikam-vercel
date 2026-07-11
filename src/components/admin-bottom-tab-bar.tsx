@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { getAdminDashboard } from "@/lib/admin-dashboard.functions";
-import { getMyActiveUnit } from "@/lib/membership.functions";
+import { getMyActiveUnit, listUnitAccessRequests } from "@/lib/membership.functions";
 
 type Item = { to: string; label: string; icon: any; exact?: boolean };
 
@@ -16,7 +16,7 @@ const ADMIN_MAIN: Item[] = [
   { to: "/admin", label: "סקירה", icon: LayoutDashboard, exact: true },
   { to: "/admin/orders", label: "הזמנות", icon: ShoppingBag },
   { to: "/admin/products", label: "מוצרים", icon: Package },
-  { to: "/admin/users", label: "מנהלים", icon: UserCog },
+  { to: "/admin/users", label: "משתמשים", icon: UserCog },
   { to: "/admin/teams", label: "צוותים", icon: Users },
 ];
 
@@ -85,8 +85,9 @@ export function AdminBottomTabBar({ role }: { role: "OWNER" | "WORK_MANAGER" | "
   const [moreOpen, setMoreOpen] = useState(false);
   const isAdmin = true;
   const canManageBudgets = role === "OWNER" || role === "WORK_MANAGER";
+  const canManageUsers = role === "OWNER" || role === "WORK_MANAGER" || role === "ADMIN";
   const mainItems = ADMIN_MAIN.filter((item) => {
-    if (item.to === "/admin/users") return role === "OWNER";
+    if (item.to === "/admin/users") return canManageUsers;
     if (item.to === "/admin/teams") return canManageBudgets;
     return true;
   });
@@ -104,6 +105,7 @@ export function AdminBottomTabBar({ role }: { role: "OWNER" | "WORK_MANAGER" | "
 
   const dashFn = useServerFn(getAdminDashboard);
   const activeUnitFn = useServerFn(getMyActiveUnit);
+  const accessRequestsFn = useServerFn(listUnitAccessRequests);
   const { data: activeUnit } = useQuery({
     queryKey: ["active-unit"],
     queryFn: () => activeUnitFn(),
@@ -115,8 +117,17 @@ export function AdminBottomTabBar({ role }: { role: "OWNER" | "WORK_MANAGER" | "
     refetchInterval: 30_000,
     staleTime: 15_000,
   });
+  const { data: unitAccessRequests } = useQuery({
+    queryKey: ["unit", activeUnit?.unit_id ?? "none", "unit-access-requests-badge"],
+    queryFn: () => accessRequestsFn(),
+    enabled: canManageUsers && !!activeUnit?.unit_id,
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+    retry: false,
+  });
   const pendingBadge =
     (dash?.kpis?.pending ?? 0) + (dash?.kpis?.awaiting ?? 0);
+  const accessRequestBadge = unitAccessRequests?.length ?? 0;
 
   const moreActive = moreItems.some((i) => isActive(i.to, i.exact));
 
@@ -136,7 +147,13 @@ export function AdminBottomTabBar({ role }: { role: "OWNER" | "WORK_MANAGER" | "
               key={item.to}
               item={item}
               active={isActive(item.to, item.exact)}
-              badge={item.to === "/admin/orders" && isAdmin ? pendingBadge : undefined}
+              badge={
+                item.to === "/admin/orders" && isAdmin
+                  ? pendingBadge
+                  : item.to === "/admin/users"
+                    ? accessRequestBadge
+                    : undefined
+              }
             />
           ))}
 
