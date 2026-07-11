@@ -142,6 +142,19 @@ function scopeByUnit(query: any, unitId: string) {
   return query.eq("unit_id", unitId);
 }
 
+async function getOrderInActiveUnit(supabaseAdmin: any, userId: string, orderId: string, select = "*, order_items(*)") {
+  const unitId = await getAdminUnitScope(supabaseAdmin, userId);
+  const { data: order, error } = await supabaseAdmin
+    .from("orders")
+    .select(select)
+    .eq("id", orderId)
+    .eq("unit_id", unitId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!order) throw new Error("הזמנה לא נמצאה ביחידה הפעילה");
+  return { order, unitId };
+}
+
 async function getLegacyCatalogTeamId(supabaseAdmin: any, unitId: string) {
   const { data: team } = await supabaseAdmin
     .from("teams")
@@ -314,13 +327,59 @@ export const updateAdminUserRole = createServerFn({ method: "POST" })
       if (error) throw new Error(error.message);
     } else {
       const unitId = await getAdminUnitScope(supabaseAdmin, context.userId);
+      const { data: actorMembership } = await supabaseAdmin
+        .from("unit_memberships")
+        .select("role")
+        .eq("user_id", context.userId)
+        .eq("unit_id", unitId)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (!["UNIT_OWNER", "UNIT_ADMIN", "PLATFORM_OWNER"].includes(String(actorMembership?.role ?? ""))) {
+        throw new Error("אין הרשאה לנהל תפקידי משתמשים ביחידה הזו");
+      }
+
+      const { data: currentMembership } = await supabaseAdmin
+        .from("unit_memberships")
+        .select("role, is_active")
+        .eq("user_id", data.user_id)
+        .eq("unit_id", unitId)
+        .maybeSingle();
+      const { data: teamMembership } = await supabaseAdmin
+        .from("team_memberships")
+        .select("id")
+        .eq("user_id", data.user_id)
+        .eq("unit_id", unitId)
+        .maybeSingle();
+      if (!currentMembership && !teamMembership) {
+        throw new Error("המשתמש אינו שייך ליחידה הפעילה");
+      }
+      if (currentMembership?.role === "UNIT_OWNER") {
+        const { count } = await supabaseAdmin
+          .from("unit_memberships")
+          .select("id", { count: "exact", head: true })
+          .eq("unit_id", unitId)
+          .eq("role", "UNIT_OWNER")
+          .eq("is_active", true)
+          .neq("user_id", data.user_id);
+        if (!count) throw new Error("לא ניתן להסיר את בעל היחידה הפעיל האחרון");
+      }
+
+      const newRole = data.role === "WORK_MANAGER" ? "WORK_MANAGER" : data.role === "ADMIN" ? "LOGISTICS_NCO" : "UNIT_USER";
       await supabaseAdmin.from("unit_memberships").upsert({
         user_id: data.user_id,
         unit_id: unitId,
-        role: data.role === "WORK_MANAGER" ? "WORK_MANAGER" : data.role === "ADMIN" ? "LOGISTICS_NCO" : "UNIT_USER",
+        role: newRole,
         is_active: true,
         updated_at: new Date().toISOString(),
       }, { onConflict: "user_id,unit_id" });
+      await (supabaseAdmin as any).from("audit_log").insert({
+        action_type: "UNIT_ROLE_CHANGED",
+        target_type: "unit_membership",
+        target_id: data.user_id,
+        performed_by_user_id: context.userId,
+        old_value: { unit_id: unitId, role: currentMembership?.role ?? null },
+        new_value: { unit_id: unitId, role: newRole },
+      });
     }
     return { ok: true };
   });
@@ -717,6 +776,16 @@ export const listOrders = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const unitId = await getAdminUnitScope(supabaseAdmin, context.userId);
+    if (data.team_id) {
+      const { data: team, error: teamError } = await supabaseAdmin
+        .from("teams")
+        .select("id")
+        .eq("id", data.team_id)
+        .eq("unit_id", unitId)
+        .maybeSingle();
+      if (teamError) throw new Error(teamError.message);
+      if (!team) throw new Error("הצוות אינו שייך ליחידה הפעילה");
+    }
     let q = supabaseAdmin.from("orders").select("*, teams(name), order_items(*)").order("created_at", { ascending: false });
     q = q.eq("unit_id", unitId);
     if (data.team_id) q = q.eq("team_id", data.team_id);
@@ -746,9 +815,12 @@ export const getOrderDetail = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdminOrStaff(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: order, error } = await supabaseAdmin
-      .from("orders").select("*, teams(id, name, monthly_limit), order_items(*)").eq("id", data.id).single();
-    if (error || !order) throw new Error(error?.message || "×”×–×ž× ×” ×œ× × ×ž×¦××”");
+    const { order } = await getOrderInActiveUnit(
+      supabaseAdmin,
+      context.userId,
+      data.id,
+      "*, teams(id, name, monthly_limit), order_items(*)",
+    );
     const { data: history } = await supabaseAdmin
       .from("order_status_history").select("*").eq("order_id", data.id).order("created_at", { ascending: true });
     let monthSpent = 0;
@@ -768,7 +840,12 @@ export const updateAdminNotes = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdminOrStaff(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { error } = await supabaseAdmin.from("orders").update({ admin_notes: data.admin_notes }).eq("id", data.id);
+    const { unitId } = await getOrderInActiveUnit(supabaseAdmin, context.userId, data.id, "id, unit_id");
+    const { error } = await supabaseAdmin
+      .from("orders")
+      .update({ admin_notes: data.admin_notes })
+      .eq("id", data.id)
+      .eq("unit_id", unitId);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -782,16 +859,29 @@ export const updateOrderStatus = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdminOrStaff(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: prev } = await supabaseAdmin.from("orders").select("*, order_items(*), teams(name)").eq("id", data.id).single();
-    if (!prev) throw new Error("×”×–×ž× ×” ×œ× × ×ž×¦××”");
+    const { order: prev, unitId } = await getOrderInActiveUnit(
+      supabaseAdmin,
+      context.userId,
+      data.id,
+      "*, order_items(*), teams(name)",
+    );
 
     // If approving an awaiting_approval order, deduct stock now
     if (prev.status === "awaiting_approval" && data.status !== "awaiting_approval" && data.status !== "cancelled") {
       for (const it of prev.order_items as any[]) {
         if (!it.product_id) continue;
-        const { data: prod } = await supabaseAdmin.from("products").select("stock").eq("id", it.product_id).maybeSingle();
+        const { data: prod } = await supabaseAdmin
+          .from("products")
+          .select("stock")
+          .eq("id", it.product_id)
+          .eq("unit_id", unitId)
+          .maybeSingle();
         if (prod) {
-          await supabaseAdmin.from("products").update({ stock: Math.max(0, prod.stock - it.quantity) }).eq("id", it.product_id);
+          await supabaseAdmin
+            .from("products")
+            .update({ stock: Math.max(0, prod.stock - it.quantity) })
+            .eq("id", it.product_id)
+            .eq("unit_id", unitId);
           await maybeNotifyLowStock(supabaseAdmin, it.product_id, Number(prod.stock));
         }
       }
@@ -800,12 +890,27 @@ export const updateOrderStatus = createServerFn({ method: "POST" })
     if (data.status === "cancelled" && prev.status !== "awaiting_approval" && prev.status !== "cancelled") {
       for (const it of prev.order_items as any[]) {
         if (!it.product_id) continue;
-        const { data: prod } = await supabaseAdmin.from("products").select("stock").eq("id", it.product_id).maybeSingle();
-        if (prod) await supabaseAdmin.from("products").update({ stock: prod.stock + it.quantity }).eq("id", it.product_id);
+        const { data: prod } = await supabaseAdmin
+          .from("products")
+          .select("stock")
+          .eq("id", it.product_id)
+          .eq("unit_id", unitId)
+          .maybeSingle();
+        if (prod) {
+          await supabaseAdmin
+            .from("products")
+            .update({ stock: prod.stock + it.quantity })
+            .eq("id", it.product_id)
+            .eq("unit_id", unitId);
+        }
       }
     }
 
-    const { error } = await supabaseAdmin.from("orders").update({ status: data.status }).eq("id", data.id);
+    const { error } = await supabaseAdmin
+      .from("orders")
+      .update({ status: data.status })
+      .eq("id", data.id)
+      .eq("unit_id", unitId);
     if (error) throw new Error(error.message);
 
     // Notify when status becomes "ready"
@@ -845,9 +950,12 @@ export const updateOrderItems = createServerFn({ method: "POST" })
     await assertAdminOrStaff(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-    const { data: prev } = await supabaseAdmin
-      .from("orders").select("*, order_items(*)").eq("id", data.order_id).single();
-    if (!prev) throw new Error("×”×–×ž× ×” ×œ× × ×ž×¦××”");
+    const { order: prev, unitId } = await getOrderInActiveUnit(
+      supabaseAdmin,
+      context.userId,
+      data.order_id,
+      "*, order_items(*)",
+    );
 
     const wasStockDeducted = prev.status !== "awaiting_approval" && prev.status !== "cancelled";
 
@@ -855,8 +963,32 @@ export const updateOrderItems = createServerFn({ method: "POST" })
     if (wasStockDeducted) {
       for (const it of prev.order_items as any[]) {
         if (!it.product_id) continue;
-        const { data: prod } = await supabaseAdmin.from("products").select("stock").eq("id", it.product_id).maybeSingle();
-        if (prod) await supabaseAdmin.from("products").update({ stock: prod.stock + it.quantity }).eq("id", it.product_id);
+        const { data: prod } = await supabaseAdmin
+          .from("products")
+          .select("stock")
+          .eq("id", it.product_id)
+          .eq("unit_id", unitId)
+          .maybeSingle();
+        if (prod) {
+          await supabaseAdmin
+            .from("products")
+            .update({ stock: prod.stock + it.quantity })
+            .eq("id", it.product_id)
+            .eq("unit_id", unitId);
+        }
+      }
+    }
+
+    const productIds = Array.from(new Set(data.items.map((item) => item.product_id).filter(Boolean))) as string[];
+    if (productIds.length) {
+      const { data: products, error: productError } = await supabaseAdmin
+        .from("products")
+        .select("id")
+        .eq("unit_id", unitId)
+        .in("id", productIds);
+      if (productError) throw new Error(productError.message);
+      if ((products ?? []).length !== productIds.length) {
+        throw new Error("אחד המוצרים אינו שייך ליחידה הפעילה");
       }
     }
 
@@ -882,9 +1014,18 @@ export const updateOrderItems = createServerFn({ method: "POST" })
     if (wasStockDeducted) {
       for (const it of newItems) {
         if (!it.product_id) continue;
-        const { data: prod } = await supabaseAdmin.from("products").select("stock").eq("id", it.product_id).maybeSingle();
+        const { data: prod } = await supabaseAdmin
+          .from("products")
+          .select("stock")
+          .eq("id", it.product_id)
+          .eq("unit_id", unitId)
+          .maybeSingle();
         if (prod) {
-          await supabaseAdmin.from("products").update({ stock: Math.max(0, prod.stock - it.quantity) }).eq("id", it.product_id);
+          await supabaseAdmin
+            .from("products")
+            .update({ stock: Math.max(0, prod.stock - it.quantity) })
+            .eq("id", it.product_id)
+            .eq("unit_id", unitId);
           await maybeNotifyLowStock(supabaseAdmin, it.product_id, Number(prod.stock));
         }
       }
@@ -893,7 +1034,7 @@ export const updateOrderItems = createServerFn({ method: "POST" })
     const { error: updErr } = await supabaseAdmin.from("orders").update({
       total,
       notes: data.notes ?? prev.notes,
-    }).eq("id", data.order_id);
+    }).eq("id", data.order_id).eq("unit_id", unitId);
     if (updErr) throw new Error(updErr.message);
 
     return { ok: true, total };
@@ -905,8 +1046,9 @@ export const deleteOrder = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { unitId } = await getOrderInActiveUnit(supabaseAdmin, context.userId, data.id, "id, unit_id");
     await supabaseAdmin.from("order_items").delete().eq("order_id", data.id);
-    const { error } = await supabaseAdmin.from("orders").delete().eq("id", data.id);
+    const { error } = await supabaseAdmin.from("orders").delete().eq("id", data.id).eq("unit_id", unitId);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -920,14 +1062,15 @@ export const deleteOldOrders = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    let q = supabaseAdmin.from("orders").select("id").lt("created_at", data.before);
+    const unitId = await getAdminUnitScope(supabaseAdmin, context.userId);
+    let q = supabaseAdmin.from("orders").select("id").eq("unit_id", unitId).lt("created_at", data.before);
     if (data.only_completed) q = q.in("status", ["completed", "cancelled"]);
     const { data: rows, error } = await q;
     if (error) throw new Error(error.message);
     const ids = (rows ?? []).map((r: any) => r.id);
     if (!ids.length) return { deleted: 0 };
     await supabaseAdmin.from("order_items").delete().in("order_id", ids);
-    const { error: delErr } = await supabaseAdmin.from("orders").delete().in("id", ids);
+    const { error: delErr } = await supabaseAdmin.from("orders").delete().eq("unit_id", unitId).in("id", ids);
     if (delErr) throw new Error(delErr.message);
     return { deleted: ids.length };
   });

@@ -66,7 +66,7 @@ function DashboardPage() {
   });
 
   const { data, isLoading } = useQuery({
-    queryKey: ["admin-dashboard", activeUnit?.unit_id ?? "none"],
+    queryKey: ["unit", activeUnit?.unit_id ?? "none", "admin-dashboard"],
     queryFn: () => dashFn(),
     enabled: !!activeUnit?.unit_id,
     staleTime: 30_000,
@@ -93,7 +93,7 @@ function DashboardPage() {
       setUnitCode("");
       qc.invalidateQueries({ queryKey: ["active-units"] });
       qc.invalidateQueries({ queryKey: ["active-unit"] });
-      qc.invalidateQueries({ queryKey: ["admin-dashboard"] });
+      qc.invalidateQueries({ queryKey: ["unit"] });
     } catch (e: any) {
       toast.error(e.message || "שגיאה ביצירת יחידה");
     }
@@ -147,7 +147,7 @@ function DashboardPage() {
     try {
       await statusFn({ data: { id, status: status as any } });
       toast.success("סטטוס עודכן");
-      qc.invalidateQueries({ queryKey: ["admin-dashboard"] });
+      qc.invalidateQueries({ queryKey: ["unit", activeUnit?.unit_id ?? "none", "admin-dashboard"] });
     } catch (e: any) { toast.error(e.message || "שגיאה"); }
   }
 
@@ -158,7 +158,7 @@ function DashboardPage() {
       await limitFn({ data: { team_id: teamId, monthly_limit: n } });
       toast.success("המסגרת עודכנה");
       setEditingTeam(null);
-      qc.invalidateQueries({ queryKey: ["admin-dashboard"] });
+      qc.invalidateQueries({ queryKey: ["unit", activeUnit?.unit_id ?? "none", "admin-dashboard"] });
     } catch (e: any) { toast.error(e.message || "שגיאה"); }
   }
 
@@ -170,7 +170,7 @@ function DashboardPage() {
       toast.success("סף ברירת המחדל עודכן");
       setEditingThreshold(false);
       qc.invalidateQueries({ queryKey: ["app-settings"] });
-      qc.invalidateQueries({ queryKey: ["admin-dashboard"] });
+      qc.invalidateQueries({ queryKey: ["unit", activeUnit?.unit_id ?? "none", "admin-dashboard"] });
     } catch (e: any) { toast.error(e.message || "שגיאה"); }
   }
 
@@ -179,6 +179,13 @@ function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-6 admin-stagger">
+      <Card className="p-4 admin-card">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Building2 className="w-4 h-4 text-primary" />
+          <span>יחידה פעילה:</span>
+          <span className="font-bold text-foreground">{activeUnit.unit_name}</span>
+        </div>
+      </Card>
       {/* KPI cards */}
       <div className={`${visible("kpis") ? "grid" : "hidden"} grid-cols-2 lg:grid-cols-4 gap-3`} style={{ order: widgetOrder("kpis") }}>
         <Kpi icon={<Clock className="w-5 h-5" />} label="ממתינות" value={kpis.pending + kpis.awaiting} tone="warning" />

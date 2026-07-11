@@ -6,13 +6,14 @@ import { useSupabaseSession } from "@/hooks/use-supabase-session";
 import {
   getMyTeamContext,
   listActiveUnits,
+  listMyUnitAccessRequests,
   listRequestableUnits,
   listTeamsForActiveUnit,
   setMyTeam,
   setMyUnit,
   submitUnitAccessRequest,
 } from "@/lib/membership.functions";
-import { setAdminActing, setTeamSession } from "@/lib/team-session";
+import { clearClientSessionState, setAdminActing, setTeamSession } from "@/lib/team-session";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -37,12 +38,14 @@ function SelectTeam() {
   const setTeamFn = useServerFn(setMyTeam);
   const ctxFn = useServerFn(getMyTeamContext);
   const requestableUnitsFn = useServerFn(listRequestableUnits);
+  const myAccessRequestsFn = useServerFn(listMyUnitAccessRequests);
   const submitAccessRequestFn = useServerFn(submitUnitAccessRequest);
   const [unitId, setUnitId] = useState("");
   const [teamId, setTeamId] = useState("");
   const [saving, setSaving] = useState(false);
   const [requestUnitId, setRequestUnitId] = useState("");
   const [requestNote, setRequestNote] = useState("");
+  const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
     if (!loading && !session) navigate({ to: "/", replace: true });
@@ -58,13 +61,34 @@ function SelectTeam() {
     queryKey: ["requestable-units"],
     queryFn: () => requestableUnitsFn(),
   });
+  const { data: myAccessRequests } = useQuery({
+    enabled: !!session && !unitsLoading && !(units ?? []).length,
+    queryKey: ["my-unit-access-requests"],
+    queryFn: () => myAccessRequestsFn(),
+  });
 
   const { data: teams, isLoading: teamsLoading } = useQuery({
     enabled: !!session && !!unitId,
-    queryKey: ["teams-for-active-unit"],
+    queryKey: ["teams-for-active-unit", unitId],
     queryFn: () => listTeamsFn(),
     retry: false,
   });
+
+  async function logout() {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await qc.cancelQueries();
+      clearClientSessionState();
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      qc.clear();
+      navigate({ to: "/", replace: true });
+    } catch (e: any) {
+      toast.error(e.message || "שגיאה ביציאה");
+      setLoggingOut(false);
+    }
+  }
 
   async function onUnitChange(nextUnitId: string) {
     setUnitId(nextUnitId);
@@ -74,7 +98,7 @@ function SelectTeam() {
       await setUnitFn({ data: { unit_id: nextUnitId } });
       setTeamSession(null);
       setAdminActing(false);
-      await qc.invalidateQueries({ queryKey: ["teams-for-active-unit"] });
+      await qc.invalidateQueries({ queryKey: ["teams-for-active-unit", nextUnitId] });
     } catch (e: any) {
       toast.error(e.message || "שגיאה בבחירת יחידה");
     } finally {
@@ -101,18 +125,27 @@ function SelectTeam() {
   }
 
   async function requestAccess() {
-    if (!requestUnitId) return;
+    if (!requestUnitId || hasPendingRequest) return;
     setSaving(true);
     try {
-      await submitAccessRequestFn({ data: { unit_id: requestUnitId, note: requestNote } });
-      toast.success("בקשת הגישה נשלחה למנהלי היחידה");
+      const res = await submitAccessRequestFn({ data: { unit_id: requestUnitId, note: requestNote } });
+      if ((res as any)?.status === "rejected_cooldown") {
+        toast.error("הבקשה נדחתה לאחרונה. ניתן לנסות שוב לאחר תקופת ההמתנה.");
+      } else {
+        toast.info("בקשתך ממתינה לאישור מנהל היחידה");
+      }
       setRequestNote("");
+      await qc.invalidateQueries({ queryKey: ["my-unit-access-requests"] });
     } catch (e: any) {
       toast.error(e.message || "שגיאה בשליחת בקשת גישה");
     } finally {
       setSaving(false);
     }
   }
+
+  const selectedRequest = (myAccessRequests ?? []).find((request: any) => request.unit_id === requestUnitId);
+  const hasPendingRequest = selectedRequest?.status === "pending";
+  const rejectedRequest = selectedRequest?.status === "rejected" ? selectedRequest : null;
 
   if (loading || !session) {
     return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
@@ -134,32 +167,41 @@ function SelectTeam() {
           ) : !(units ?? []).length ? (
             <div className="space-y-4 text-center">
               <div className="rounded-xl bg-muted/70 p-4 text-sm text-muted-foreground">
-                לא נמצאה לך גישה פעילה ליחידה. אם נרשמת עכשיו, צריך שבעל המערכת או מנהל היחידה יאשרו וישייכו אותך ליחידה/צוות.
+                לא נמצאה לך גישה פעילה ליחידה. בחר יחידה ושלח בקשת גישה למנהל היחידה.
               </div>
               <div className="space-y-3 text-right">
                 <Select value={requestUnitId} onValueChange={setRequestUnitId}>
                   <SelectTrigger><SelectValue placeholder="בחר/י יחידה לשליחת בקשת גישה" /></SelectTrigger>
                   <SelectContent>
-                    {(requestableUnits ?? []).map((u: any) => (
-                      <SelectItem key={u.unit_id} value={u.unit_id}>{u.unit_name}</SelectItem>
+                    {(requestableUnits ?? []).map((unit: any) => (
+                      <SelectItem key={unit.unit_id} value={unit.unit_id}>{unit.unit_name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {hasPendingRequest && (
+                  <div className="rounded-lg bg-warning/15 p-3 text-sm text-warning-foreground">
+                    בקשתך ממתינה לאישור מנהל היחידה
+                  </div>
+                )}
+                {rejectedRequest && (
+                  <div className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+                    הבקשה הקודמת נדחתה. {rejectedRequest.review_notes ? `הערה: ${rejectedRequest.review_notes}` : ""}
+                  </div>
+                )}
                 <textarea
                   className="min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm"
                   value={requestNote}
                   onChange={(e) => setRequestNote(e.target.value)}
                   placeholder="הערה קצרה למנהל היחידה, אופציונלי"
+                  disabled={hasPendingRequest}
                 />
-                <Button className="w-full" disabled={!requestUnitId || saving} onClick={requestAccess}>
+                <Button className="w-full" disabled={!requestUnitId || saving || hasPendingRequest} onClick={requestAccess}>
                   {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : "שלח בקשת גישה"}
                 </Button>
               </div>
-              <Button variant="ghost" className="w-full" onClick={async () => {
-                await supabase.auth.signOut();
-                navigate({ to: "/", replace: true });
-              }}>
-                <LogOut className="w-4 h-4 ml-2" /> יציאה
+              <Button variant="ghost" className="w-full" onClick={logout} disabled={loggingOut}>
+                {loggingOut ? <Loader2 className="w-4 h-4 ml-2 animate-spin" /> : <LogOut className="w-4 h-4 ml-2" />}
+                יציאה
               </Button>
             </div>
           ) : (
@@ -167,9 +209,9 @@ function SelectTeam() {
               <Select value={unitId} onValueChange={onUnitChange}>
                 <SelectTrigger><SelectValue placeholder="בחר/י יחידה" /></SelectTrigger>
                 <SelectContent>
-                  {(units ?? []).map((u: any) => (
-                    <SelectItem key={u.unit_id} value={u.unit_id}>
-                      {u.unit_name}{u.role ? ` · ${u.role}` : ""}
+                  {(units ?? []).map((unit: any) => (
+                    <SelectItem key={unit.unit_id} value={unit.unit_id}>
+                      {unit.unit_name}{unit.role ? ` · ${unit.role}` : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -178,9 +220,9 @@ function SelectTeam() {
               <Select value={teamId} onValueChange={setTeamId} disabled={!unitId || teamsLoading}>
                 <SelectTrigger><SelectValue placeholder={teamsLoading ? "טוען צוותים..." : "בחר/י צוות"} /></SelectTrigger>
                 <SelectContent>
-                  {(teams ?? []).map((t: any) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.name}{typeof t.monthly_limit === "number" ? ` · ₪${t.monthly_limit.toLocaleString("he-IL")}` : ""}
+                  {(teams ?? []).map((team: any) => (
+                    <SelectItem key={team.id} value={team.id}>
+                      {team.name}{typeof team.monthly_limit === "number" ? ` · ₪${team.monthly_limit.toLocaleString("he-IL")}` : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -189,11 +231,9 @@ function SelectTeam() {
               <Button disabled={!unitId || !teamId || saving} onClick={onContinue} className="w-full h-11">
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : "המשך לחנות"}
               </Button>
-              <Button variant="ghost" className="w-full" onClick={async () => {
-                await supabase.auth.signOut();
-                navigate({ to: "/", replace: true });
-              }}>
-                <LogOut className="w-4 h-4 ml-2" /> יציאה
+              <Button variant="ghost" className="w-full" onClick={logout} disabled={loggingOut}>
+                {loggingOut ? <Loader2 className="w-4 h-4 ml-2 animate-spin" /> : <LogOut className="w-4 h-4 ml-2" />}
+                יציאה
               </Button>
             </>
           )}

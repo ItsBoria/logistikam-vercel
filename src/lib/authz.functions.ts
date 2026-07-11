@@ -31,8 +31,24 @@ export async function getFunctionUserRole(userId: string): Promise<FunctionRoleC
 
 export async function assertFunctionMinRole(userId: string, minimum: Exclude<FunctionRoleCode, "USER">) {
   const role = await getFunctionUserRole(userId);
-  if (FUNCTION_ROLE_LEVEL[role] < FUNCTION_ROLE_LEVEL[minimum]) throw new Error("אין הרשאה לפעולה זו");
-  return role;
+  if (FUNCTION_ROLE_LEVEL[role] >= FUNCTION_ROLE_LEVEL[minimum]) return role;
+
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: unitRoles } = await supabaseAdmin
+    .from("unit_memberships")
+    .select("role")
+    .eq("user_id", userId)
+    .eq("is_active", true);
+
+  const hasUnitAdmin = (unitRoles ?? []).some((row: any) =>
+    ["PLATFORM_OWNER", "UNIT_OWNER", "UNIT_ADMIN", "WORK_MANAGER", "LOGISTICS_NCO"].includes(String(row.role)),
+  );
+  const hasUnitOwner = (unitRoles ?? []).some((row: any) =>
+    ["PLATFORM_OWNER", "UNIT_OWNER", "WORK_MANAGER"].includes(String(row.role)),
+  );
+  const unitRole: FunctionRoleCode = hasUnitOwner ? "WORK_MANAGER" : hasUnitAdmin ? "ADMIN" : "USER";
+  if (FUNCTION_ROLE_LEVEL[unitRole] < FUNCTION_ROLE_LEVEL[minimum]) throw new Error("אין הרשאה לפעולה זו");
+  return unitRole;
 }
 
 export async function assertFunctionOwner(userId: string) {

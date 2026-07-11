@@ -10,7 +10,7 @@ import {
   updateAdminUserRole,
   searchRegisteredUsers,
 } from "@/lib/admin.functions";
-import { listActiveTeams, listUnitAccessRequests, resolveUnitAccessRequest, setUserTeamAdmin } from "@/lib/membership.functions";
+import { getMyActiveUnit, listActiveTeams, listUnitAccessRequests, resolveUnitAccessRequest, setUserTeamAdmin } from "@/lib/membership.functions";
 import { setAdminApprover } from "@/lib/missions.functions";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -38,19 +38,35 @@ function Admins() {
   const deleteFn = useServerFn(deleteAdminUser);
   const roleFn = useServerFn(updateAdminUserRole);
   const searchFn = useServerFn(searchRegisteredUsers);
+  const activeUnitFn = useServerFn(getMyActiveUnit);
   const teamsFn = useServerFn(listActiveTeams);
   const setTeamFn = useServerFn(setUserTeamAdmin);
   const requestsFn = useServerFn(listUnitAccessRequests);
   const resolveRequestFn = useServerFn(resolveUnitAccessRequest);
   const approverFn = useServerFn(setAdminApprover);
 
-  const { data: admins } = useQuery({ queryKey: ["admin-users"], queryFn: () => listFn() });
-  const { data: teams } = useQuery({ queryKey: ["active-teams-admin"], queryFn: () => teamsFn() });
-  const { data: accessRequests } = useQuery({ queryKey: ["unit-access-requests"], queryFn: () => requestsFn() });
+  const { data: activeUnit } = useQuery({ queryKey: ["active-unit"], queryFn: () => activeUnitFn() });
+  const unitKey = activeUnit?.unit_id ?? "none";
+  const { data: admins } = useQuery({
+    queryKey: ["unit", unitKey, "admin-users"],
+    queryFn: () => listFn(),
+    enabled: !!activeUnit?.unit_id,
+  });
+  const { data: teams } = useQuery({
+    queryKey: ["unit", unitKey, "active-teams-admin"],
+    queryFn: () => teamsFn(),
+    enabled: !!activeUnit?.unit_id,
+  });
+  const { data: accessRequests } = useQuery({
+    queryKey: ["unit", unitKey, "unit-access-requests"],
+    queryFn: () => requestsFn(),
+    enabled: !!activeUnit?.unit_id,
+  });
   const [query, setQuery] = useState("");
   const { data: searchResults, isFetching: searching } = useQuery({
-    queryKey: ["registered-users", query],
+    queryKey: ["unit", unitKey, "registered-users", query],
     queryFn: () => searchFn({ data: { query } }),
+    enabled: !!activeUnit?.unit_id,
   });
 
   const [creating, setCreating] = useState(false);
@@ -65,8 +81,7 @@ function Admins() {
       await createFn({ data: { email, username, password, role } });
       toast.success("המשתמש נוסף");
       setEmail(""); setUsername(""); setPassword(""); setRole("ADMIN"); setCreating(false);
-      qc.invalidateQueries({ queryKey: ["admin-users"] });
-      qc.invalidateQueries({ queryKey: ["registered-users"] });
+      qc.invalidateQueries({ queryKey: ["unit", unitKey] });
     } catch (e: any) { toast.error(e.message); }
   }
   async function remove(id: string) {
@@ -74,39 +89,37 @@ function Admins() {
     try {
       await deleteFn({ data: { user_id: id } });
       toast.success("נמחק");
-      qc.invalidateQueries({ queryKey: ["admin-users"] });
-      qc.invalidateQueries({ queryKey: ["registered-users"] });
+      qc.invalidateQueries({ queryKey: ["unit", unitKey] });
     } catch (e: any) { toast.error(e.message); }
   }
   async function changeRole(id: string, newRole: "WORK_MANAGER" | "ADMIN" | "USER") {
     try {
       await roleFn({ data: { user_id: id, role: newRole } });
       toast.success("התפקיד עודכן");
-      qc.invalidateQueries({ queryKey: ["admin-users"] });
-      qc.invalidateQueries({ queryKey: ["registered-users"] });
+      qc.invalidateQueries({ queryKey: ["unit", unitKey] });
     } catch (e: any) { toast.error(e.message); }
   }
   async function changeTeam(userId: string, value: string) {
     try {
       await setTeamFn({ data: { user_id: userId, team_id: value === "none" ? null : value } });
       toast.success("הצוות עודכן");
-      qc.invalidateQueries({ queryKey: ["admin-users"] });
-      qc.invalidateQueries({ queryKey: ["registered-users"] });
+      qc.invalidateQueries({ queryKey: ["unit", unitKey] });
     } catch (e: any) { toast.error(e.message); }
   }
   async function toggleApprover(userId: string, val: boolean) {
     try {
       await approverFn({ data: { user_id: userId, is_approver: val } });
       toast.success(val ? "סומן כמאשר" : "הוסר סימון מאשר");
-      qc.invalidateQueries({ queryKey: ["admin-users"] });
+      qc.invalidateQueries({ queryKey: ["unit", unitKey, "admin-users"] });
       qc.invalidateQueries({ queryKey: ["calendar-admins"] });
     } catch (e: any) { toast.error(e.message); }
   }
   async function resolveRequest(
     requestId: string,
     decision: "approved" | "rejected",
-    accessRole: "UNIT_USER" | "LOGISTICS_NCO" | "WORK_MANAGER",
+    accessRole: "UNIT_USER" | "LOGISTICS_NCO" | "WORK_MANAGER" | "UNIT_ADMIN",
     teamId?: string | null,
+    reviewNotes?: string,
   ) {
     try {
       await resolveRequestFn({
@@ -115,12 +128,11 @@ function Admins() {
           decision,
           role: accessRole,
           team_id: teamId ?? null,
+          review_notes: reviewNotes ?? "",
         },
       });
       toast.success(decision === "approved" ? "המשתמש אושר ליחידה" : "בקשת הגישה נדחתה");
-      qc.invalidateQueries({ queryKey: ["unit-access-requests"] });
-      qc.invalidateQueries({ queryKey: ["admin-users"] });
-      qc.invalidateQueries({ queryKey: ["registered-users"] });
+      qc.invalidateQueries({ queryKey: ["unit", unitKey] });
     } catch (e: any) {
       toast.error(e.message || "שגיאה בעדכון בקשת הגישה");
     }
@@ -131,7 +143,7 @@ function Admins() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">משתמשים</h1>
+          <h1 className="text-2xl font-bold">משתמשים ובקשות גישה</h1>
           <p className="text-sm text-muted-foreground">ניהול תפקידים והרשאות</p>
         </div>
         <Button onClick={() => setCreating(true)}><Plus className="w-4 h-4 ml-2" /> משתמש חדש</Button>
@@ -326,14 +338,16 @@ function AccessRequestRow({
   onResolve: (
     id: string,
     decision: "approved" | "rejected",
-    role: "UNIT_USER" | "LOGISTICS_NCO" | "WORK_MANAGER",
+    role: "UNIT_USER" | "LOGISTICS_NCO" | "WORK_MANAGER" | "UNIT_ADMIN",
     teamId?: string | null,
+    reviewNotes?: string,
   ) => void;
 }) {
-  const [accessRole, setAccessRole] = useState<"UNIT_USER" | "LOGISTICS_NCO" | "WORK_MANAGER">(
+  const [accessRole, setAccessRole] = useState<"UNIT_USER" | "LOGISTICS_NCO" | "WORK_MANAGER" | "UNIT_ADMIN">(
     request.requested_role ?? "UNIT_USER",
   );
   const [teamId, setTeamId] = useState<string>("none");
+  const [reviewNotes, setReviewNotes] = useState("");
   const displayName = request.display_name || request.email || "משתמש חדש";
   const requestedAt = request.created_at ? new Date(request.created_at).toLocaleString("he-IL") : "";
   const needsTeam = accessRole === "UNIT_USER";
@@ -360,6 +374,7 @@ function AccessRequestRow({
         <Select value={accessRole} onValueChange={(v) => setAccessRole(v as any)}>
           <SelectTrigger className="w-40 h-9 text-xs"><SelectValue /></SelectTrigger>
           <SelectContent>
+            <SelectItem value="UNIT_ADMIN">מנהל יחידה</SelectItem>
             <SelectItem value="WORK_MANAGER">מנהל עבודה</SelectItem>
             <SelectItem value="LOGISTICS_NCO">נגד לוגיסטיקה</SelectItem>
             <SelectItem value="UNIT_USER">לקוח / רס״פ</SelectItem>
@@ -378,7 +393,7 @@ function AccessRequestRow({
 
         <Button
           size="sm"
-          onClick={() => onResolve(request.id, "approved", accessRole, teamId === "none" ? null : teamId)}
+          onClick={() => onResolve(request.id, "approved", accessRole, teamId === "none" ? null : teamId, reviewNotes)}
           disabled={needsTeam && teamId === "none"}
         >
           אשר
@@ -386,10 +401,16 @@ function AccessRequestRow({
         <Button
           size="sm"
           variant="outline"
-          onClick={() => onResolve(request.id, "rejected", accessRole, null)}
+          onClick={() => onResolve(request.id, "rejected", accessRole, null, reviewNotes)}
         >
           דחה
         </Button>
+        <Input
+          className="w-full md:w-56 h-9 text-xs"
+          value={reviewNotes}
+          onChange={(e) => setReviewNotes(e.target.value)}
+          placeholder="הערת אישור / דחייה"
+        />
       </div>
     </div>
   );

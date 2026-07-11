@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
 import { assertFunctionMinRole as assertMinRole } from "./authz.functions";
+import { resolveActiveAdminUnitId } from "./membership.functions";
 
 async function assertAdmin(userId: string) {
   return assertMinRole(userId, "ADMIN");
@@ -16,6 +17,12 @@ export const getAdminDashboard = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     await assertAdminOrStaff(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const unitId = await resolveActiveAdminUnitId(supabaseAdmin, context.userId);
+    const { data: activeUnit } = await supabaseAdmin
+      .from("units")
+      .select("id, name, code")
+      .eq("id", unitId)
+      .maybeSingle();
 
     const monthStart = new Date();
     monthStart.setUTCDate(1);
@@ -42,17 +49,18 @@ export const getAdminDashboard = createServerFn({ method: "GET" })
       activeProductsRes,
       stuckOrdersRes,
     ] = await Promise.all([
-      supabaseAdmin.from("orders").select("*", { count: "exact", head: true }).eq("status", "pending"),
-      supabaseAdmin.from("orders").select("*", { count: "exact", head: true }).eq("status", "awaiting_approval"),
-      supabaseAdmin.from("replacement_requests").select("*", { count: "exact", head: true }).in("status", ["preparing","ready"]),
-      supabaseAdmin.from("orders").select("*", { count: "exact", head: true }).eq("status", "awaiting_approval").lt("created_at", stuckAwaitingIso),
-      supabaseAdmin.from("orders").select("*", { count: "exact", head: true }).eq("status", "ready").lt("created_at", stuckReadyIso),
-      supabaseAdmin.from("orders").select("id, total, team_id, status, created_at").gte("created_at", monthIso),
-      supabaseAdmin.from("teams").select("id, name, monthly_limit, active").eq("active", true).order("name"),
-      supabaseAdmin.from("orders").select("id, status, total, created_at, ordered_by_name, teams(name)").order("created_at", { ascending: false }).limit(5),
-      supabaseAdmin.from("products").select("id, name, stock, low_stock_threshold").eq("active", true),
+      supabaseAdmin.from("orders").select("*", { count: "exact", head: true }).eq("unit_id", unitId).eq("status", "pending"),
+      supabaseAdmin.from("orders").select("*", { count: "exact", head: true }).eq("unit_id", unitId).eq("status", "awaiting_approval"),
+      supabaseAdmin.from("replacement_requests").select("*", { count: "exact", head: true }).eq("unit_id", unitId).in("status", ["preparing","ready"]),
+      supabaseAdmin.from("orders").select("*", { count: "exact", head: true }).eq("unit_id", unitId).eq("status", "awaiting_approval").lt("created_at", stuckAwaitingIso),
+      supabaseAdmin.from("orders").select("*", { count: "exact", head: true }).eq("unit_id", unitId).eq("status", "ready").lt("created_at", stuckReadyIso),
+      supabaseAdmin.from("orders").select("id, total, team_id, status, created_at").eq("unit_id", unitId).gte("created_at", monthIso),
+      supabaseAdmin.from("teams").select("id, name, monthly_limit, active").eq("unit_id", unitId).eq("active", true).order("name"),
+      supabaseAdmin.from("orders").select("id, status, total, created_at, ordered_by_name, teams(name)").eq("unit_id", unitId).order("created_at", { ascending: false }).limit(5),
+      supabaseAdmin.from("products").select("id, name, stock, low_stock_threshold").eq("unit_id", unitId).eq("active", true),
       supabaseAdmin.from("orders")
         .select("id, status, total, created_at, ordered_by_name, teams(name)")
+        .eq("unit_id", unitId)
         .or(`and(status.eq.awaiting_approval,created_at.lt.${stuckAwaitingIso}),and(status.eq.ready,created_at.lt.${stuckReadyIso})`)
         .order("created_at", { ascending: true }).limit(10),
     ]);
@@ -89,6 +97,11 @@ export const getAdminDashboard = createServerFn({ method: "GET" })
     const overBudgetCount = teamStats.filter(t => t.monthly_limit > 0 && t.pct >= 100).length;
 
     return {
+      unit: {
+        id: unitId,
+        name: activeUnit?.name ?? "",
+        code: activeUnit?.code ?? null,
+      },
       kpis: {
         pending: pendingCount ?? 0,
         awaiting: awaitingCount ?? 0,
@@ -122,6 +135,15 @@ export const setTeamMonthlyLimit = createServerFn({ method: "POST" })
     if (role !== "OWNER" && role !== "WORK_MANAGER") {
       throw new Error("רק בעלים או מנהל עבודה רשאים לשנות תקציב");
     }
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const unitId = await resolveActiveAdminUnitId(supabaseAdmin, context.userId);
+    const { data: team } = await supabaseAdmin
+      .from("teams")
+      .select("id, unit_id")
+      .eq("id", data.team_id)
+      .maybeSingle();
+    if (!team || team.unit_id !== unitId) throw new Error("אין הרשאה לעדכן תקציב צוות ביחידה אחרת");
+
     const { error } = await (context.supabase as any).rpc("reset_team_budget", {
       _team_id: data.team_id,
       _new_budget: data.monthly_limit,

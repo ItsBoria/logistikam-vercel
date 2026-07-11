@@ -34,3 +34,24 @@ export function isAdminActing(): boolean {
   if (typeof window === "undefined") return false;
   return localStorage.getItem(ADMIN_ACTING_KEY) === "1";
 }
+
+export function clearClientSessionState() {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(KEY);
+    localStorage.removeItem(ADMIN_ACTING_KEY);
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      if (key.startsWith("team-contact:")) localStorage.removeItem(key);
+    }
+    for (let i = sessionStorage.length - 1; i >= 0; i--) {
+      const key = sessionStorage.key(i);
+      if (!key) continue;
+      if (key.startsWith("cart:") || key.startsWith("prefill-cart:")) sessionStorage.removeItem(key);
+    }
+    window.dispatchEvent(new Event("team-session-changed"));
+  } catch {
+    // Ignore storage cleanup failures; auth sign-out still controls access.
+  }
+}

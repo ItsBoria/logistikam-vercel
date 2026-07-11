@@ -109,7 +109,7 @@ export function AdminBottomTabBar({ role }: { role: "OWNER" | "WORK_MANAGER" | "
     queryFn: () => activeUnitFn(),
   });
   const { data: dash } = useQuery({
-    queryKey: ["admin-dashboard-badge", activeUnit?.unit_id ?? "none"],
+    queryKey: ["unit", activeUnit?.unit_id ?? "none", "admin-dashboard-badge"],
     queryFn: () => dashFn(),
     enabled: isAdmin && !!activeUnit?.unit_id,
     refetchInterval: 30_000,

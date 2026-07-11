@@ -1,12 +1,12 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSupabaseSession } from "@/hooks/use-supabase-session";
 import { useAdminRoles } from "@/hooks/use-admin-roles";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { setAdminActing, setTeamSession } from "@/lib/team-session";
+import { clearClientSessionState, setAdminActing, setTeamSession } from "@/lib/team-session";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getMyActiveUnit, listActiveUnits, setMyUnit } from "@/lib/membership.functions";
 import { AdminBottomTabBar } from "@/components/admin-bottom-tab-bar";
@@ -67,8 +67,26 @@ export function AdminShell({
 
 function AdminShellInner({ session, roles, children }: { session: any; roles: any; children: ReactNode }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const hidden = useHideOnScroll();
   const { data: preferences } = useAdminPreferences();
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  async function logout() {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await queryClient.cancelQueries();
+      clearClientSessionState();
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      queryClient.clear();
+      navigate({ to: "/", replace: true });
+    } catch (e) {
+      console.error(e);
+      setLoggingOut(false);
+    }
+  }
 
   useEffect(() => {
     const root = document.documentElement;
@@ -100,7 +118,8 @@ function AdminShellInner({ session, roles, children }: { session: any; roles: an
               className="h-8 w-8"
               aria-label="יציאה"
               title={session.user.email ?? "יציאה"}
-              onClick={() => supabase.auth.signOut().then(() => navigate({ to: "/" }))}
+              onClick={logout}
+              disabled={loggingOut}
             >
               <LogOut className="w-4 h-4" />
             </Button>
@@ -127,7 +146,10 @@ function ActiveUnitPicker() {
       await setUnitFn({ data: { unit_id: unitId } });
       setTeamSession(null);
       setAdminActing(false);
-      await qc.invalidateQueries();
+      await qc.cancelQueries();
+      qc.removeQueries({ queryKey: ["unit"] });
+      await qc.invalidateQueries({ queryKey: ["active-unit"] });
+      await qc.invalidateQueries({ queryKey: ["active-units"] });
       navigate({ to: "/admin" });
     } catch (e) {
       console.error(e);

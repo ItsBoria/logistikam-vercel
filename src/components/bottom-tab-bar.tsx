@@ -3,7 +3,7 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { Home, ClipboardList, LayoutDashboard, MoreHorizontal, Replace, LogOut, ShoppingCart } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { setTeamSession } from "@/lib/team-session";
+import { clearClientSessionState } from "@/lib/team-session";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { PushToggle } from "@/components/push-toggle";
@@ -184,13 +184,26 @@ function Tab({ item, active }: { item: Item; active: boolean }) {
 
 export function BottomTabBar({ pin }: { pin?: string }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const isActive = useIsActive();
   const [open, setOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
-  function logout() {
-    setTeamSession(null);
-    setOpen(false);
-    navigate({ to: "/" });
+  async function logout() {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      setOpen(false);
+      await queryClient.cancelQueries();
+      clearClientSessionState();
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      queryClient.clear();
+      navigate({ to: "/", replace: true });
+    } catch (e) {
+      console.error(e);
+      setLoggingOut(false);
+    }
   }
 
   return (
@@ -232,8 +245,8 @@ export function BottomTabBar({ pin }: { pin?: string }) {
                     <PushToggle pin={pin} />
                   </div>
                 )}
-                <Button variant="outline" className="w-full justify-start h-12" onClick={logout}>
-                  <LogOut className="w-4 h-4 ml-2" /> יציאה
+                <Button variant="outline" className="w-full justify-start h-12" onClick={logout} disabled={loggingOut}>
+                  <LogOut className="w-4 h-4 ml-2" /> {loggingOut ? "יוצא..." : "יציאה"}
                 </Button>
               </div>
             </SheetContent>

@@ -754,6 +754,44 @@ Follow-up role/unit-scope work added:
 - An admin-header active unit selector.
 - Owner/admin operational data now requires a selected active unit instead of silently showing broad mixed data.
 
+Latest multi-unit hardening added:
+
+- `src/lib/authz.functions.ts` now treats active `unit_memberships` as the fallback authorization source when a user does not have an old global role. This lets `UNIT_OWNER`, `UNIT_ADMIN`, `WORK_MANAGER`, and `LOGISTICS_NCO` enter the correct admin surfaces without granting global `OWNER`.
+- `src/lib/membership.functions.ts` now makes existing-Unit access requests idempotent:
+  - one pending request per `user_id + unit_id`;
+  - repeated clicks do not reset the original request time;
+  - rejected requests have a 24-hour cooldown before resubmission;
+  - Unit user managers can approve/reject requests for the active Unit only;
+  - approval creates/updates `unit_memberships` and optional `team_memberships`;
+  - request submission, duplicate-block, approval, rejection, team assignment, and team removal are audited when `audit_log` exists.
+- `src/routes/select-team.tsx`, `src/components/bottom-tab-bar.tsx`, and `src/components/admin-shell.tsx` now perform real logout cleanup:
+  - cancel active queries;
+  - clear team session, admin acting state, cart/session storage, and cached data;
+  - call Supabase `signOut`;
+  - navigate back to `/` with replacement.
+- Unit dashboard data is scoped in `src/lib/admin-dashboard.functions.ts` and `src/routes/admin.index.tsx` with query keys like `["unit", unitId, "admin-dashboard"]`. The dashboard also displays the active Unit name.
+- Admin user/request screens in `src/routes/admin.users.tsx` use active-Unit query keys so users, Teams, and pending requests do not leak between selected Units.
+- Order operations in `src/lib/admin.functions.ts` must verify the active Unit, not only the list:
+  - `listOrders`
+  - `getOrderDetail`
+  - `updateAdminNotes`
+  - `updateOrderStatus`
+  - `updateOrderItems`
+  - `deleteOrder`
+  - `deleteOldOrders`
+  Stock changes must verify `products.unit_id = activeUnitId`.
+- `updateAdminUserRole` stores non-owner role changes in `unit_memberships`, blocks unauthorized Unit-role administration, prevents changing the final active `UNIT_OWNER`, and audits Unit-role changes.
+- `setUserTeamAdmin` no longer downgrades an existing admin membership to `UNIT_USER` when assigning a Team. It preserves existing Unit roles and only creates `UNIT_USER` when the user had no Unit membership.
+- `supabase/migrations/20260711190000_unit_integrity_repair_and_constraints.sql` repairs non-null mismatched `unit_id` values, assigns approved Unit creators as `UNIT_OWNER`, cancels duplicate pending Unit-registration requests while preserving the earliest pending row, adds duplicate-prevention indexes, adds `UNIT_ADMIN` to the access-request role check, enforces `team_memberships.unit_id = teams.unit_id`, prevents removal of the final active `UNIT_OWNER`, and creates `public.unit_integrity_validation`.
+
+After running the latest migration in Supabase, check:
+
+```sql
+select * from public.unit_integrity_validation;
+```
+
+The result should be empty. If rows remain, inspect them before assuming the migration fully repaired production data.
+
 ## Known gaps / future architecture work
 
 These are intentionally not fully solved yet:
