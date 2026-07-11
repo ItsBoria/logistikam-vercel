@@ -783,6 +783,7 @@ Latest multi-unit hardening added:
 - `updateAdminUserRole` stores non-owner role changes in `unit_memberships`, blocks unauthorized Unit-role administration, prevents changing the final active `UNIT_OWNER`, and audits Unit-role changes.
 - `setUserTeamAdmin` no longer downgrades an existing admin membership to `UNIT_USER` when assigning a Team. It preserves existing Unit roles and only creates `UNIT_USER` when the user had no Unit membership.
 - `supabase/migrations/20260711190000_unit_integrity_repair_and_constraints.sql` repairs non-null mismatched `unit_id` values, assigns approved Unit creators as `UNIT_OWNER`, cancels duplicate pending Unit-registration requests while preserving the earliest pending row, adds duplicate-prevention indexes, adds `UNIT_ADMIN` to the access-request role check, enforces `team_memberships.unit_id = teams.unit_id`, prevents removal of the final active `UNIT_OWNER`, and creates `public.unit_integrity_validation`.
+- `supabase/migrations/20260711193000_repair_missing_unit_owners.sql` handles the validation case where a Unit still has no active `UNIT_OWNER`: the `ORIGINAL` Unit receives the active global `OWNER`, and any other Unit without an owner promotes its strongest existing active admin-like Unit membership to `UNIT_OWNER`. Units with no candidate intentionally remain in `public.unit_integrity_validation` for manual assignment.
 
 After running the latest migration in Supabase, check:
 
