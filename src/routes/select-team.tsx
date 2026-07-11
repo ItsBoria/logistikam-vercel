@@ -198,9 +198,9 @@ function SelectTeam() {
   const pendingUnitRegistrationRequest = (myUnitRegistrationRequests ?? []).find((request: any) => request.status === "pending");
   const hasPendingUnitRegistrationRequest = !!pendingUnitRegistrationRequest;
   const defaultContactName =
-    (session.user.user_metadata?.full_name as string | undefined) ||
-    (session.user.user_metadata?.name as string | undefined) ||
-    session.user.email?.split("@")[0] ||
+    (session?.user.user_metadata?.full_name as string | undefined) ||
+    (session?.user.user_metadata?.name as string | undefined) ||
+    session?.user.email?.split("@")[0] ||
     "";
 
   if (loading || !session) {

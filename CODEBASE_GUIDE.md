@@ -845,6 +845,10 @@ Before changing code:
 7. Check mobile/store navigation in bottom tab bars.
 8. Run build after changes.
 
+## Recent troubleshooting notes
+
+- 2026-07-11: Login/registration could show the app error screen with `Cannot read properties of null (reading 'user')` when Supabase auth was still loading and `session` was temporarily `null`. Keep route/component code defensive around `session?.user`, especially in `select-team.tsx` and shell/header components that render before auth is fully resolved.
+
 ## Common commands for future agents
 
 Check status:

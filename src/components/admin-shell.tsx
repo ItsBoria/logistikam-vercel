@@ -117,7 +117,7 @@ function AdminShellInner({ session, roles, children }: { session: any; roles: an
               size="icon"
               className="h-8 w-8"
               aria-label="יציאה"
-              title={session.user.email ?? "יציאה"}
+              title={session?.user.email ?? "יציאה"}
               onClick={logout}
               disabled={loggingOut}
             >
