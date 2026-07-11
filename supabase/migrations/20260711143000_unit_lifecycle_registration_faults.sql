@@ -65,6 +65,26 @@ CREATE INDEX IF NOT EXISTS unit_registration_requests_status_created_idx
 CREATE INDEX IF NOT EXISTS unit_registration_requests_email_idx
   ON public.unit_registration_requests(lower(contact_email), lower(requested_admin_email));
 
+CREATE TABLE IF NOT EXISTS public.unit_access_requests (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  unit_id uuid NOT NULL REFERENCES public.units(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  requested_role text NOT NULL DEFAULT 'UNIT_USER' CHECK (requested_role IN ('UNIT_USER', 'LOGISTICS_NCO', 'WORK_MANAGER')),
+  note text,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled')),
+  review_notes text,
+  resolved_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  resolved_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(unit_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS unit_access_requests_unit_status_idx
+  ON public.unit_access_requests(unit_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS unit_access_requests_user_idx
+  ON public.unit_access_requests(user_id, status);
+
 CREATE TABLE IF NOT EXISTS public.construction_faults (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   unit_id uuid NOT NULL REFERENCES public.units(id) ON DELETE RESTRICT,
@@ -130,6 +150,7 @@ AS $$
 $$;
 
 ALTER TABLE public.unit_registration_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.unit_access_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.construction_faults ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "platform owner reads all units" ON public.units;
@@ -169,6 +190,50 @@ CREATE POLICY "platform owner manages unit requests" ON public.unit_registration
 FOR ALL TO authenticated
 USING (public.is_platform_owner())
 WITH CHECK (public.is_platform_owner());
+
+DROP POLICY IF EXISTS "users create own unit access requests" ON public.unit_access_requests;
+CREATE POLICY "users create own unit access requests" ON public.unit_access_requests
+FOR INSERT TO authenticated
+WITH CHECK (user_id = auth.uid() AND status = 'pending');
+
+DROP POLICY IF EXISTS "users read own unit access requests" ON public.unit_access_requests;
+CREATE POLICY "users read own unit access requests" ON public.unit_access_requests
+FOR SELECT TO authenticated
+USING (
+  user_id = auth.uid()
+  OR public.is_platform_owner()
+  OR EXISTS (
+    SELECT 1 FROM public.unit_memberships um
+    WHERE um.unit_id = unit_access_requests.unit_id
+      AND um.user_id = auth.uid()
+      AND um.is_active = true
+      AND um.role IN ('PLATFORM_OWNER', 'UNIT_OWNER', 'UNIT_ADMIN', 'WORK_MANAGER', 'LOGISTICS_NCO')
+  )
+);
+
+DROP POLICY IF EXISTS "unit admins manage unit access requests" ON public.unit_access_requests;
+CREATE POLICY "unit admins manage unit access requests" ON public.unit_access_requests
+FOR UPDATE TO authenticated
+USING (
+  public.is_platform_owner()
+  OR EXISTS (
+    SELECT 1 FROM public.unit_memberships um
+    WHERE um.unit_id = unit_access_requests.unit_id
+      AND um.user_id = auth.uid()
+      AND um.is_active = true
+      AND um.role IN ('PLATFORM_OWNER', 'UNIT_OWNER', 'UNIT_ADMIN', 'WORK_MANAGER', 'LOGISTICS_NCO')
+  )
+)
+WITH CHECK (
+  public.is_platform_owner()
+  OR EXISTS (
+    SELECT 1 FROM public.unit_memberships um
+    WHERE um.unit_id = unit_access_requests.unit_id
+      AND um.user_id = auth.uid()
+      AND um.is_active = true
+      AND um.role IN ('PLATFORM_OWNER', 'UNIT_OWNER', 'UNIT_ADMIN', 'WORK_MANAGER', 'LOGISTICS_NCO')
+  )
+);
 
 DROP POLICY IF EXISTS "unit members read construction faults" ON public.construction_faults;
 CREATE POLICY "unit members read construction faults" ON public.construction_faults
@@ -259,5 +324,6 @@ FROM public.team_memberships
 GROUP BY user_id, team_id
 HAVING count(*) > 1;
 
-GRANT SELECT ON public.unit_registration_requests, public.construction_faults, public.unit_integrity_validation TO authenticated;
-GRANT ALL ON public.unit_registration_requests, public.construction_faults TO service_role;
+GRANT SELECT ON public.unit_registration_requests, public.unit_access_requests, public.construction_faults, public.unit_integrity_validation TO authenticated;
+GRANT INSERT ON public.unit_access_requests TO authenticated;
+GRANT ALL ON public.unit_registration_requests, public.unit_access_requests, public.construction_faults TO service_role;

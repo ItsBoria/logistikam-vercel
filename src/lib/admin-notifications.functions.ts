@@ -194,7 +194,26 @@ export const getMyAdminRoles = createServerFn({ method: "GET" })
         canResetBudgets: false, canSignCalendar: false, hasAccess: false,
       };
     }
-    const role = await getLocalUserRole(context.userId);
+    const globalRole = await getLocalUserRole(context.userId);
+    const { data: unitRoles } = await supabaseAdmin
+      .from("unit_memberships")
+      .select("role")
+      .eq("user_id", context.userId)
+      .eq("is_active", true);
+    const hasUnitAdminRole = (unitRoles ?? []).some((r: any) =>
+      ["PLATFORM_OWNER", "UNIT_OWNER", "UNIT_ADMIN", "WORK_MANAGER", "LOGISTICS_NCO"].includes(String(r.role)),
+    );
+    const hasWorkManager = (unitRoles ?? []).some((r: any) =>
+      ["PLATFORM_OWNER", "UNIT_OWNER", "WORK_MANAGER"].includes(String(r.role)),
+    );
+    const role =
+      globalRole !== "USER"
+        ? globalRole
+        : hasWorkManager
+          ? "WORK_MANAGER"
+          : hasUnitAdminRole
+            ? "ADMIN"
+            : "USER";
     return {
       roles: role === "USER" ? [] : [role],
       role,
@@ -202,7 +221,7 @@ export const getMyAdminRoles = createServerFn({ method: "GET" })
       isWorkManager: role === "WORK_MANAGER",
       isAdmin: role !== "USER",
       isStaff: false,
-      canManageRoles: role === "OWNER",
+      canManageRoles: role === "OWNER" || hasUnitAdminRole,
       canResetBudgets: role === "OWNER" || role === "WORK_MANAGER",
       canSignCalendar: role === "OWNER" || role === "WORK_MANAGER",
       hasAccess: role !== "USER",

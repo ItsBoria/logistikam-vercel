@@ -44,8 +44,23 @@ async function getLocalUserRole(userId: string): Promise<LocalRoleCode> {
 async function assertMinRole(userId: string, minimum: Exclude<LocalRoleCode, "USER">) {
   const role = await getLocalUserRole(userId);
   const level: Record<LocalRoleCode, number> = { OWNER: 100, WORK_MANAGER: 50, ADMIN: 50, USER: 10 };
-  if (level[role] < level[minimum]) throw new Error("אין הרשאה לפעולה זו");
-  return role;
+  if (level[role] >= level[minimum]) return role;
+
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: unitRoles } = await supabaseAdmin
+    .from("unit_memberships")
+    .select("role")
+    .eq("user_id", userId)
+    .eq("is_active", true);
+  const hasUnitAdmin = (unitRoles ?? []).some((r: any) =>
+    ["PLATFORM_OWNER", "UNIT_OWNER", "UNIT_ADMIN", "WORK_MANAGER", "LOGISTICS_NCO"].includes(String(r.role)),
+  );
+  const hasWorkManager = (unitRoles ?? []).some((r: any) =>
+    ["PLATFORM_OWNER", "UNIT_OWNER", "WORK_MANAGER"].includes(String(r.role)),
+  );
+  const unitRole: LocalRoleCode = hasWorkManager ? "WORK_MANAGER" : hasUnitAdmin ? "ADMIN" : "USER";
+  if (level[unitRole] < level[minimum]) throw new Error("אין הרשאה לפעולה זו");
+  return unitRole;
 }
 
 async function assertOwner(userId: string) {
@@ -167,13 +182,21 @@ async function maybeNotifyLowStock(supabaseAdmin: any, productId: string, prevSt
 export const listAdminUsers = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    await assertOwner(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: roles } = await supabaseAdmin
-      .from("user_roles")
-      .select("user_id, role, created_at")
-      .eq("is_active", true)
-      .in("role", ["OWNER", "WORK_MANAGER", "ADMIN"]);
+    const viewerRole = await getLocalUserRole(context.userId);
+    const activeUnitId = viewerRole === "OWNER" ? null : await getAdminUnitScope(supabaseAdmin, context.userId);
+    const { data: roles } = activeUnitId
+      ? await supabaseAdmin
+          .from("unit_memberships")
+          .select("user_id, role, created_at")
+          .eq("unit_id", activeUnitId)
+          .eq("is_active", true)
+          .in("role", ["PLATFORM_OWNER", "UNIT_OWNER", "UNIT_ADMIN", "WORK_MANAGER", "LOGISTICS_NCO"])
+      : await supabaseAdmin
+          .from("user_roles")
+          .select("user_id, role, created_at")
+          .eq("is_active", true)
+          .in("role", ["OWNER", "WORK_MANAGER", "ADMIN"]);
     const { data: list } = await supabaseAdmin.auth.admin.listUsers();
     const userIds = Array.from(new Set((roles ?? []).map((r: any) => r.user_id)));
     const { data: profs } = userIds.length
@@ -188,25 +211,31 @@ export const listAdminUsers = createServerFn({ method: "GET" })
       if (new Date(row.created_at) < new Date(cur.created_at)) cur.created_at = row.created_at;
       byUser.set(row.user_id, cur);
     }
+    const normalizeRole = (role: string) =>
+      role === "OWNER" || role === "PLATFORM_OWNER" || role === "UNIT_OWNER" || role === "WORK_MANAGER"
+        ? "WORK_MANAGER"
+        : role === "UNIT_ADMIN" || role === "LOGISTICS_NCO" || role === "ADMIN"
+          ? "ADMIN"
+          : "USER";
     return Array.from(byUser.entries()).map(([userId, info]) => {
       const u = list.users.find(x => x.id === userId);
+      const sortedRoles = info.roles.sort((a, b) => {
+        const level: Record<string, number> = { OWNER: 100, PLATFORM_OWNER: 100, UNIT_OWNER: 90, WORK_MANAGER: 80, UNIT_ADMIN: 70, ADMIN: 50, LOGISTICS_NCO: 50 };
+        return (level[b] ?? 0) - (level[a] ?? 0);
+      });
       return {
         user_id: userId,
         email: u?.email ?? "(לא ידוע)",
         username: (u?.user_metadata as any)?.username ?? null,
-        roles: info.roles as ("OWNER" | "WORK_MANAGER" | "ADMIN")[],
-        current_role: info.roles.sort((a, b) => {
-          const level: Record<string, number> = { OWNER: 100, WORK_MANAGER: 80, ADMIN: 50 };
-          return (level[b] ?? 0) - (level[a] ?? 0);
-        })[0] ?? "USER",
-        is_admin: info.roles.length > 0,
+        roles: sortedRoles.map(normalizeRole),
+        current_role: normalizeRole(sortedRoles[0] ?? "USER"),
+        is_admin: sortedRoles.length > 0,
         is_staff: false,
         is_approver: approverMap.get(userId) ?? false,
         created_at: info.created_at,
       };
     });
   });
-
 export const createAdminUser = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input) => z.object({
@@ -270,27 +299,38 @@ export const updateAdminUserRole = createServerFn({ method: "POST" })
     role: z.enum(["WORK_MANAGER", "ADMIN", "USER"]),
   }).parse(input))
   .handler(async ({ data, context }) => {
-    await assertOwner(context.userId);
     if (data.user_id === context.userId) {
       throw new Error("לא ניתן לשנות את התפקיד של עצמך");
     }
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { error } = await (context.supabase as any).rpc("owner_set_user_role", {
-      _target_user_id: data.user_id,
-      _role: data.role,
-      _active: true,
-      _reason: "Role changed through user management",
-    });
-    if (error) throw new Error(error.message);
+    const viewerRole = await getLocalUserRole(context.userId);
+    if (viewerRole === "OWNER") {
+      const { error } = await (context.supabase as any).rpc("owner_set_user_role", {
+        _target_user_id: data.user_id,
+        _role: data.role,
+        _active: true,
+        _reason: "Role changed through user management",
+      });
+      if (error) throw new Error(error.message);
+    } else {
+      const unitId = await getAdminUnitScope(supabaseAdmin, context.userId);
+      await supabaseAdmin.from("unit_memberships").upsert({
+        user_id: data.user_id,
+        unit_id: unitId,
+        role: data.role === "WORK_MANAGER" ? "WORK_MANAGER" : data.role === "ADMIN" ? "LOGISTICS_NCO" : "UNIT_USER",
+        is_active: true,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id,unit_id" });
+    }
     return { ok: true };
   });
-
 export const searchRegisteredUsers = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input) => z.object({ query: z.string().max(200).optional().default("") }).parse(input))
   .handler(async ({ data, context }) => {
-    await assertOwner(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const viewerRole = await getLocalUserRole(context.userId);
+    const activeUnitId = viewerRole === "OWNER" ? null : await getAdminUnitScope(supabaseAdmin, context.userId);
     const { data: list } = await supabaseAdmin.auth.admin.listUsers({ perPage: 200 });
     const { data: roles } = await supabaseAdmin
       .from("user_roles").select("user_id, role").eq("is_active", true)
@@ -306,48 +346,55 @@ export const searchRegisteredUsers = createServerFn({ method: "POST" })
     const { data: profs } = await supabaseAdmin
       .from("profiles").select("id, display_name").in("id", safeIds);
     const nameById = new Map((profs ?? []).map((p: any) => [p.id, p.display_name as string | null]));
-    const { data: members } = await supabaseAdmin
-      .from("team_members").select("user_id, team_id").in("user_id", safeIds);
-    const teamIdByUser = new Map<string, string>((members ?? []).map((m: any) => [m.user_id, m.team_id]));
+    const { data: memberships } = await supabaseAdmin
+      .from("team_memberships").select("user_id, team_id, unit_id").in("user_id", safeIds);
+    const scopedMemberships = activeUnitId ? (memberships ?? []).filter((m: any) => m.unit_id === activeUnitId) : (memberships ?? []);
+    const teamIdByUser = new Map<string, string>(scopedMemberships.map((m: any) => [m.user_id, m.team_id]));
     const teamIds = Array.from(new Set(Array.from(teamIdByUser.values())));
     const { data: teams } = teamIds.length
       ? await supabaseAdmin.from("teams").select("id, name").in("id", teamIds)
       : { data: [] as any[] };
     const teamNameById = new Map((teams ?? []).map((t: any) => [t.id, t.name as string]));
+    const { data: unitMembers } = activeUnitId
+      ? await supabaseAdmin.from("unit_memberships").select("user_id, role").eq("unit_id", activeUnitId).in("user_id", safeIds)
+      : { data: [] as any[] };
+    const unitRoleByUser = new Map((unitMembers ?? []).map((m: any) => [m.user_id, m.role as string]));
     const q = data.query.trim().toLowerCase();
     const rows = list.users.map(u => {
       const md = (u.user_metadata as any) || {};
       const displayName = nameById.get(u.id) || md.full_name || md.name || (u.email?.split("@")[0] ?? "");
       const provider = u.app_metadata?.provider || "email";
       const teamId = teamIdByUser.get(u.id) ?? null;
+      const unitRole = unitRoleByUser.get(u.id);
+      const currentRole = activeUnitId
+        ? unitRole === "WORK_MANAGER" || unitRole === "UNIT_OWNER" ? "WORK_MANAGER" : unitRole === "LOGISTICS_NCO" || unitRole === "UNIT_ADMIN" ? "ADMIN" : "USER"
+        : (roleByUser.get(u.id) ?? "USER");
       return {
         id: u.id,
         email: u.email ?? "",
         displayName: displayName as string,
         provider: provider as string,
-        currentRole: (roleByUser.get(u.id) ?? "USER") as "OWNER" | "WORK_MANAGER" | "ADMIN" | "USER",
+        currentRole: currentRole as "OWNER" | "WORK_MANAGER" | "ADMIN" | "USER",
         team_id: teamId,
         team_name: teamId ? (teamNameById.get(teamId) ?? null) : null,
         created_at: u.created_at,
       };
-    });
+    }).filter((row) => !activeUnitId || unitRoleByUser.has(row.id) || teamIdByUser.has(row.id));
     const filtered = q
       ? rows.filter(r => r.email.toLowerCase().includes(q) || r.displayName.toLowerCase().includes(q))
       : rows;
     filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     return filtered.slice(0, 50);
   });
-
-
 export const deleteAdminUser = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input) => z.object({ user_id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
     await assertOwner(context.userId);
-    if (data.user_id === context.userId) throw new Error("לא ניתן למחוק את עצמך");
+    if (data.user_id === context.userId) throw new Error("×œ× × ×™×ª×Ÿ ×œ×ž×—×•×§ ××ª ×¢×¦×ž×š");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: targetRole } = await (supabaseAdmin as any).rpc("current_role_code", { _user_id: data.user_id });
-    if (targetRole === "OWNER") throw new Error("לא ניתן להשבית את חשבון הבעלים");
+    if (targetRole === "OWNER") throw new Error("×œ× × ×™×ª×Ÿ ×œ×”×©×‘×™×ª ××ª ×—×©×‘×•×Ÿ ×”×‘×¢×œ×™×");
     await supabaseAdmin.from("profiles").update({
       is_active: false,
       deactivated_at: new Date().toISOString(),
@@ -366,7 +413,7 @@ export const deleteAdminUser = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-// Teams (admin-only — exposes PIN)
+// Teams (admin-only â€” exposes PIN)
 export const listTeams = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
@@ -464,7 +511,7 @@ export const updateProductStock = createServerFn({ method: "POST" })
     const unitId = await getAdminUnitScope(supabaseAdmin, context.userId);
     const { data: prev } = await supabaseAdmin
       .from("products").select("stock, unit_id").eq("id", data.id).maybeSingle();
-    if (!prev) throw new Error("מוצר לא נמצא");
+    if (!prev) throw new Error("×ž×•×¦×¨ ×œ× × ×ž×¦×");
     const update: { stock: number; low_stock_threshold?: number | null } = { stock: data.stock };
     if (prev.unit_id !== unitId) throw new Error("??? ????? ????? ???? ?? ????? ????");
     if (data.low_stock_threshold !== undefined) update.low_stock_threshold = data.low_stock_threshold;
@@ -477,7 +524,7 @@ export const updateProductStock = createServerFn({ method: "POST" })
 // image_url accepts: empty, http(s)://..., or "storage:<path>"
 const imageUrlSchema = z.string().max(2000).optional().nullable().refine(
   (v) => !v || v.startsWith("http://") || v.startsWith("https://") || v.startsWith("storage:"),
-  "כתובת תמונה לא תקינה"
+  "×›×ª×•×‘×ª ×ª×ž×•× ×” ×œ× ×ª×§×™× ×”"
 );
 
 const productSchema = z.object({
@@ -488,7 +535,7 @@ const productSchema = z.object({
   stock: z.number().int().min(0).max(10_000_000),
   category_id: z.string().uuid(),
   item_code: z.string().trim().max(50).optional().nullable(),
-  unit_of_measure: z.string().trim().min(1).max(50).default("יחידה"),
+  unit_of_measure: z.string().trim().min(1).max(50).default("×™×—×™×“×”"),
   can_be_ordered: z.boolean().default(true),
   can_be_replacement: z.boolean().default(true),
   maximum_quantity: z.number().int().min(1).max(1_000_000).optional().nullable(),
@@ -638,7 +685,7 @@ export const bulkImportProducts = createServerFn({ method: "POST" })
     const byName = new Map<string, any>((categories ?? []).map((category: any) => [category.name.trim().toLowerCase(), category]));
     const payload = data.rows.map((r) => {
       const category = byName.get((r.category ?? "").trim().toLowerCase());
-      if (!category) throw new Error(`הקטגוריה "${r.category ?? ""}" אינה קיימת או אינה פעילה`);
+      if (!category) throw new Error(`×”×§×˜×’×•×¨×™×” "${r.category ?? ""}" ××™× ×” ×§×™×™×ž×ª ××• ××™× ×” ×¤×¢×™×œ×”`);
       return {
         name: r.name, description: r.description ?? null,
         price: r.price, stock: r.stock,
@@ -701,7 +748,7 @@ export const getOrderDetail = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: order, error } = await supabaseAdmin
       .from("orders").select("*, teams(id, name, monthly_limit), order_items(*)").eq("id", data.id).single();
-    if (error || !order) throw new Error(error?.message || "הזמנה לא נמצאה");
+    if (error || !order) throw new Error(error?.message || "×”×–×ž× ×” ×œ× × ×ž×¦××”");
     const { data: history } = await supabaseAdmin
       .from("order_status_history").select("*").eq("order_id", data.id).order("created_at", { ascending: true });
     let monthSpent = 0;
@@ -736,7 +783,7 @@ export const updateOrderStatus = createServerFn({ method: "POST" })
     await assertAdminOrStaff(context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: prev } = await supabaseAdmin.from("orders").select("*, order_items(*), teams(name)").eq("id", data.id).single();
-    if (!prev) throw new Error("הזמנה לא נמצאה");
+    if (!prev) throw new Error("×”×–×ž× ×” ×œ× × ×ž×¦××”");
 
     // If approving an awaiting_approval order, deduct stock now
     if (prev.status === "awaiting_approval" && data.status !== "awaiting_approval" && data.status !== "cancelled") {
@@ -764,14 +811,14 @@ export const updateOrderStatus = createServerFn({ method: "POST" })
     // Notify when status becomes "ready"
     if (data.status === "ready") {
       const teamName = (prev as any).teams?.name ?? "";
-      const text = `ההזמנה של ${teamName} מוכנה לאיסוף. סה"כ: ₪${prev.total}`;
+      const text = `×”×”×–×ž× ×” ×©×œ ${teamName} ×ž×•×›× ×” ×œ××™×¡×•×£. ×¡×”"×›: â‚ª${prev.total}`;
       if (prev.contact_phone) {
         const { sendSms } = await import("./sms.server");
         await sendSms(prev.contact_phone, text).catch((e) => console.warn("[sms] failed:", e?.message));
       }
       const { sendPushToTeam } = await import("./push.server");
       await sendPushToTeam(prev.team_id, {
-        title: "ההזמנה מוכנה לאיסוף 🎉",
+        title: "×”×”×–×ž× ×” ×ž×•×›× ×” ×œ××™×¡×•×£ ðŸŽ‰",
         body: text,
         url: "/shop/orders",
       }).catch((e) => console.warn("[push] failed:", e?.message));
@@ -800,7 +847,7 @@ export const updateOrderItems = createServerFn({ method: "POST" })
 
     const { data: prev } = await supabaseAdmin
       .from("orders").select("*, order_items(*)").eq("id", data.order_id).single();
-    if (!prev) throw new Error("הזמנה לא נמצאה");
+    if (!prev) throw new Error("×”×–×ž× ×” ×œ× × ×ž×¦××”");
 
     const wasStockDeducted = prev.status !== "awaiting_approval" && prev.status !== "cancelled";
 

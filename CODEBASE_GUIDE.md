@@ -26,6 +26,25 @@ The important product rule after the Unit/Team correction:
 - Normal users must only see Teams where they have explicit active Team membership.
 - Do not use `teams` as the tenant boundary going forward.
 
+## Unit onboarding and access workflow
+
+The app now separates platform ownership from day-to-day Unit user approval:
+
+- The single platform Owner creates or approves Units and can switch between Units.
+- Once a Unit exists, Unit admins manage users inside that Unit.
+- New authenticated users with no Unit access land on `src/routes/select-team.tsx`, choose a Unit, and submit a row in `public.unit_access_requests`.
+- Unit admins review pending Unit access requests in `src/routes/admin.users.tsx` under the "בקשות גישה" tab.
+- Approving a request creates or updates `unit_memberships` for that Unit and can also assign the user to a Team through `team_memberships` / legacy `team_members`.
+- Owner users should not need to approve every normal user. Owner approval is only for Unit-level lifecycle and platform-wide control.
+- Unit admin access checks must read `unit_memberships`, not only legacy/global `user_roles`.
+- If a non-owner Unit admin has no active Unit selected, `assertActiveUnit` auto-selects their first accessible Unit so original-unit admins do not see empty admin screens.
+
+Role level model:
+
+1. `OWNER` / platform owner: David, sees every Unit but works inside a selected active Unit for scoped pages.
+2. Unit admins: `WORK_MANAGER`, `LOGISTICS_NCO`, `UNIT_ADMIN`, `UNIT_OWNER`; these map to admin panel access for the active Unit.
+3. Unit customers / RASP users: `UNIT_USER` plus optional Team membership (`RASP`) for team-scoped screens.
+
 ## Technology stack
 
 - React 19

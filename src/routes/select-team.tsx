@@ -3,7 +3,15 @@ import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSupabaseSession } from "@/hooks/use-supabase-session";
-import { getMyTeamContext, listActiveUnits, listTeamsForActiveUnit, setMyTeam, setMyUnit } from "@/lib/membership.functions";
+import {
+  getMyTeamContext,
+  listActiveUnits,
+  listRequestableUnits,
+  listTeamsForActiveUnit,
+  setMyTeam,
+  setMyUnit,
+  submitUnitAccessRequest,
+} from "@/lib/membership.functions";
 import { setAdminActing, setTeamSession } from "@/lib/team-session";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,9 +36,13 @@ function SelectTeam() {
   const setUnitFn = useServerFn(setMyUnit);
   const setTeamFn = useServerFn(setMyTeam);
   const ctxFn = useServerFn(getMyTeamContext);
+  const requestableUnitsFn = useServerFn(listRequestableUnits);
+  const submitAccessRequestFn = useServerFn(submitUnitAccessRequest);
   const [unitId, setUnitId] = useState("");
   const [teamId, setTeamId] = useState("");
   const [saving, setSaving] = useState(false);
+  const [requestUnitId, setRequestUnitId] = useState("");
+  const [requestNote, setRequestNote] = useState("");
 
   useEffect(() => {
     if (!loading && !session) navigate({ to: "/", replace: true });
@@ -40,6 +52,11 @@ function SelectTeam() {
     enabled: !!session,
     queryKey: ["active-units"],
     queryFn: () => listUnitsFn(),
+  });
+  const { data: requestableUnits } = useQuery({
+    enabled: !!session && !unitsLoading && !(units ?? []).length,
+    queryKey: ["requestable-units"],
+    queryFn: () => requestableUnitsFn(),
   });
 
   const { data: teams, isLoading: teamsLoading } = useQuery({
@@ -83,6 +100,20 @@ function SelectTeam() {
     }
   }
 
+  async function requestAccess() {
+    if (!requestUnitId) return;
+    setSaving(true);
+    try {
+      await submitAccessRequestFn({ data: { unit_id: requestUnitId, note: requestNote } });
+      toast.success("בקשת הגישה נשלחה למנהלי היחידה");
+      setRequestNote("");
+    } catch (e: any) {
+      toast.error(e.message || "שגיאה בשליחת בקשת גישה");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (loading || !session) {
     return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
   }
@@ -104,6 +135,25 @@ function SelectTeam() {
             <div className="space-y-4 text-center">
               <div className="rounded-xl bg-muted/70 p-4 text-sm text-muted-foreground">
                 לא נמצאה לך גישה פעילה ליחידה. אם נרשמת עכשיו, צריך שבעל המערכת או מנהל היחידה יאשרו וישייכו אותך ליחידה/צוות.
+              </div>
+              <div className="space-y-3 text-right">
+                <Select value={requestUnitId} onValueChange={setRequestUnitId}>
+                  <SelectTrigger><SelectValue placeholder="בחר/י יחידה לשליחת בקשת גישה" /></SelectTrigger>
+                  <SelectContent>
+                    {(requestableUnits ?? []).map((u: any) => (
+                      <SelectItem key={u.unit_id} value={u.unit_id}>{u.unit_name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <textarea
+                  className="min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                  value={requestNote}
+                  onChange={(e) => setRequestNote(e.target.value)}
+                  placeholder="הערה קצרה למנהל היחידה, אופציונלי"
+                />
+                <Button className="w-full" disabled={!requestUnitId || saving} onClick={requestAccess}>
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : "שלח בקשת גישה"}
+                </Button>
               </div>
               <Button variant="ghost" className="w-full" onClick={async () => {
                 await supabase.auth.signOut();

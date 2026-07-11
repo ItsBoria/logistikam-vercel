@@ -1,4 +1,4 @@
-import { createServerFn } from "@tanstack/react-start";
+﻿import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
@@ -86,6 +86,35 @@ async function getUnitMembership(supabaseAdmin: any, userId: string, unitId: str
   return data as { unit_id: string; role: string; is_active: boolean } | null;
 }
 
+async function getHighestUnitAdminRole(supabaseAdmin: any, userId: string) {
+  const { data } = await supabaseAdmin
+    .from("unit_memberships")
+    .select("role")
+    .eq("user_id", userId)
+    .eq("is_active", true);
+  const level: Record<string, number> = {
+    PLATFORM_OWNER: 100,
+    UNIT_OWNER: 90,
+    UNIT_ADMIN: 80,
+    WORK_MANAGER: 70,
+    LOGISTICS_NCO: 60,
+    UNIT_USER: 10,
+  };
+  let highest: string | null = null;
+  for (const row of data ?? []) {
+    const role = String((row as any).role || "");
+    if (UNIT_ADMIN_ROLES.has(role) && (!highest || (level[role] ?? 0) > (level[highest] ?? 0))) highest = role;
+  }
+  return highest;
+}
+
+function unitRoleToGlobalRole(role: string | null): RoleCode {
+  if (role === "PLATFORM_OWNER" || role === "UNIT_OWNER") return "WORK_MANAGER";
+  if (role === "WORK_MANAGER") return "WORK_MANAGER";
+  if (role === "UNIT_ADMIN" || role === "LOGISTICS_NCO") return "ADMIN";
+  return "USER";
+}
+
 function isSelectableUnit(unit: any) {
   if (!unit) return false;
   if (unit.deleted_at) return false;
@@ -113,15 +142,47 @@ async function assertCanAccessUnit(supabaseAdmin: any, userId: string, unitId: s
   const globalRole = await getGlobalUserRole(userId);
   if (globalRole === "OWNER") return { role: "PLATFORM_OWNER", isPlatformOwner: true };
   const membership = await getUnitMembership(supabaseAdmin, userId, unitId);
-  if (!membership) throw new Error("אין לך הרשאה ליחידה הזו");
+  if (!membership) throw new Error("××™×Ÿ ×œ×š ×”×¨×©××” ×œ×™×—×™×“×” ×”×–×•");
   return { role: membership.role, isPlatformOwner: false };
 }
 
 async function assertActiveUnit(supabaseAdmin: any, userId: string) {
   const ctx = await getActiveContext(supabaseAdmin, userId);
-  if (!ctx?.active_unit_id) throw new Error("צריך לבחור יחידה פעילה לפני המשך העבודה");
-  const access = await assertCanAccessUnit(supabaseAdmin, userId, ctx.active_unit_id);
-  return { unitId: ctx.active_unit_id, teamId: ctx.active_team_id, ...access };
+  let activeUnitId = ctx?.active_unit_id ?? null;
+  let activeTeamId = ctx?.active_team_id ?? null;
+
+  if (!activeUnitId) {
+    const globalRole = await getGlobalUserRole(userId);
+    if (globalRole === "OWNER") {
+      throw new Error("×¦×¨×™×š ×œ×‘×—×•×¨ ×™×—×™×“×” ×¤×¢×™×œ×” ×œ×¤× ×™ ×”×ž×©×š ×”×¢×‘×•×“×”");
+    }
+
+    const { data: memberships } = await supabaseAdmin
+      .from("unit_memberships")
+      .select(`unit_id, role, units(${SELECTABLE_UNIT_FILTER})`)
+      .eq("user_id", userId)
+      .eq("is_active", true)
+      .order("created_at", { ascending: true });
+
+    const first = (memberships ?? []).find((row: any) => isSelectableUnit(row.units));
+    if (!first?.unit_id) {
+      throw new Error("×¦×¨×™×š ×œ×‘×—×•×¨ ×™×—×™×“×” ×¤×¢×™×œ×” ×œ×¤× ×™ ×”×ž×©×š ×”×¢×‘×•×“×”");
+    }
+
+    activeUnitId = first.unit_id;
+    activeTeamId = null;
+    await supabaseAdmin
+      .from("user_active_contexts")
+      .upsert({
+        user_id: userId,
+        active_unit_id: activeUnitId,
+        active_team_id: null,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id" });
+  }
+
+  const access = await assertCanAccessUnit(supabaseAdmin, userId, activeUnitId!);
+  return { unitId: activeUnitId!, teamId: activeTeamId, ...access };
 }
 
 async function canAccessTeamInUnit(supabaseAdmin: any, userId: string, unitId: string, teamId: string) {
@@ -148,13 +209,13 @@ async function canAccessTeamInUnit(supabaseAdmin: any, userId: string, unitId: s
 
 export async function resolveActiveAdminUnitId(supabaseAdmin: any, userId: string) {
   const active = await assertActiveUnit(supabaseAdmin, userId);
-  if (!UNIT_ADMIN_ROLES.has(active.role)) throw new Error("אין הרשאה ניהולית ליחידה הזו");
+  if (!UNIT_ADMIN_ROLES.has(active.role)) throw new Error("××™×Ÿ ×”×¨×©××” × ×™×”×•×œ×™×ª ×œ×™×—×™×“×” ×”×–×•");
   return active.unitId;
 }
 
 export async function resolveActiveAdminScope(supabaseAdmin: any, userId: string) {
   const active = await assertActiveUnit(supabaseAdmin, userId);
-  if (!UNIT_ADMIN_ROLES.has(active.role)) throw new Error("אין הרשאה ניהולית ליחידה הזו");
+  if (!UNIT_ADMIN_ROLES.has(active.role)) throw new Error("××™×Ÿ ×”×¨×©××” × ×™×”×•×œ×™×ª ×œ×™×—×™×“×” ×”×–×•");
   return { unitId: active.unitId, teamId: active.teamId, role: active.role };
 }
 
@@ -254,7 +315,7 @@ export const setMyUnit = createServerFn({ method: "POST" })
       .select("id, active")
       .eq("id", data.unit_id)
       .maybeSingle();
-    if (!unit?.active) throw new Error("היחידה לא פעילה");
+    if (!unit?.active) throw new Error("×”×™×—×™×“×” ×œ× ×¤×¢×™×œ×”");
     const { error } = await supabaseAdmin
       .from("user_active_contexts")
       .upsert({
@@ -279,7 +340,7 @@ export const createUnit = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const role = await getGlobalUserRole(context.userId);
-    if (role !== "OWNER") throw new Error("רק בעל המערכת יכול ליצור יחידות");
+    if (role !== "OWNER") throw new Error("×¨×§ ×‘×¢×œ ×”×ž×¢×¨×›×ª ×™×›×•×œ ×œ×™×¦×•×¨ ×™×—×™×“×•×ª");
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const payload = {
@@ -340,7 +401,7 @@ export const listOwnerUnits = createServerFn({ method: "POST" })
   }).parse(input ?? {}))
   .handler(async ({ data, context }) => {
     const role = await getGlobalUserRole(context.userId);
-    if (role !== "OWNER") throw new Error("רק בעל המערכת יכול לנהל יחידות");
+    if (role !== "OWNER") throw new Error("×¨×§ ×‘×¢×œ ×”×ž×¢×¨×›×ª ×™×›×•×œ ×œ× ×”×œ ×™×—×™×“×•×ª");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     let q = supabaseAdmin
       .from("units")
@@ -388,7 +449,7 @@ export const updateOwnerUnit = createServerFn({ method: "POST" })
   }).parse(input))
   .handler(async ({ data, context }) => {
     const role = await getGlobalUserRole(context.userId);
-    if (role !== "OWNER") throw new Error("רק בעל המערכת יכול לערוך יחידות");
+    if (role !== "OWNER") throw new Error("×¨×§ ×‘×¢×œ ×”×ž×¢×¨×›×ª ×™×›×•×œ ×œ×¢×¨×•×š ×™×—×™×“×•×ª");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { error } = await supabaseAdmin
       .from("units")
@@ -415,7 +476,7 @@ export const softDeleteOwnerUnit = createServerFn({ method: "POST" })
   .inputValidator((input) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
     const role = await getGlobalUserRole(context.userId);
-    if (role !== "OWNER") throw new Error("רק בעל המערכת יכול למחוק יחידות");
+    if (role !== "OWNER") throw new Error("×¨×§ ×‘×¢×œ ×”×ž×¢×¨×›×ª ×™×›×•×œ ×œ×ž×—×•×§ ×™×—×™×“×•×ª");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const now = new Date().toISOString();
     const { error } = await supabaseAdmin
@@ -478,7 +539,7 @@ export const setMyTeam = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const active = await assertActiveUnit(supabaseAdmin, context.userId);
     const allowed = await canAccessTeamInUnit(supabaseAdmin, context.userId, active.unitId, data.team_id);
-    if (!allowed) throw new Error("אין לך הרשאה לצוות הזה");
+    if (!allowed) throw new Error("××™×Ÿ ×œ×š ×”×¨×©××” ×œ×¦×•×•×ª ×”×–×”");
     const { error } = await supabaseAdmin
       .from("user_active_contexts")
       .upsert({
@@ -561,13 +622,15 @@ export const getMyTeamContext = createServerFn({ method: "GET" })
 export const getMyLandingContext = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const role = await getGlobalUserRole(context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const globalRole = await getGlobalUserRole(context.userId);
+    const unitAdminRole = await getHighestUnitAdminRole(supabaseAdmin, context.userId);
+    const role = globalRole !== "USER" ? globalRole : unitRoleToGlobalRole(unitAdminRole);
     const hasAccess = role !== "USER";
     const isAdmin = role !== "USER";
     const isStaff = false;
 
     let team: TeamContext = null;
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const ctx = await getActiveContext(supabaseAdmin, context.userId);
     if (ctx?.active_unit_id && ctx.active_team_id) {
       const allowed = await canAccessTeamInUnit(supabaseAdmin, context.userId, ctx.active_unit_id, ctx.active_team_id);
@@ -592,6 +655,158 @@ export const getMyLandingContext = createServerFn({ method: "GET" })
     }
 
     return { role, hasAccess, isAdmin, isStaff, team };
+  });
+
+export const listRequestableUnits = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async () => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data, error } = await supabaseAdmin
+      .from("units")
+      .select(SELECTABLE_UNIT_FILTER)
+      .is("deleted_at", null)
+      .neq("status", "deleted")
+      .order("name");
+    if (error) throw new Error(error.message);
+    return (data ?? [])
+      .filter(isSelectableUnit)
+      .map((unit: any) => mapUnitForClient(unit, "REQUESTABLE", false));
+  });
+
+export const submitUnitAccessRequest = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({
+    unit_id: z.string().uuid(),
+    requested_role: z.enum(["UNIT_USER", "LOGISTICS_NCO", "WORK_MANAGER"]).default("UNIT_USER"),
+    note: z.string().trim().max(500).optional().default(""),
+  }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: unit } = await supabaseAdmin
+      .from("units")
+      .select("id, active, status, deleted_at")
+      .eq("id", data.unit_id)
+      .maybeSingle();
+    if (!isSelectableUnit(unit)) throw new Error("×”×™×—×™×“×” ×œ× ×–×ž×™× ×” ×œ×‘×§×©×ª ×’×™×©×”");
+    const { data: existingMembership } = await supabaseAdmin
+      .from("unit_memberships")
+      .select("id")
+      .eq("user_id", context.userId)
+      .eq("unit_id", data.unit_id)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (existingMembership?.id) return { ok: true, already_member: true };
+    const { error } = await supabaseAdmin
+      .from("unit_access_requests")
+      .upsert({
+        unit_id: data.unit_id,
+        user_id: context.userId,
+        requested_role: data.requested_role,
+        note: data.note || null,
+        status: "pending",
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "unit_id,user_id" });
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const listUnitAccessRequests = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const active = await assertActiveUnit(supabaseAdmin, context.userId);
+    if (!UNIT_ADMIN_ROLES.has(active.role)) throw new Error("××™×Ÿ ×”×¨×©××” × ×™×”×•×œ×™×ª ×œ×™×—×™×“×” ×”×–×•");
+    const { data: requests, error } = await supabaseAdmin
+      .from("unit_access_requests")
+      .select("id, unit_id, user_id, requested_role, note, status, created_at, updated_at")
+      .eq("unit_id", active.unitId)
+      .eq("status", "pending")
+      .order("created_at", { ascending: false });
+    if (error) throw new Error(error.message);
+    const userIds = Array.from(new Set((requests ?? []).map((r: any) => r.user_id)));
+    const { data: authUsers } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
+    const userById = new Map((authUsers?.users ?? []).filter((u: any) => userIds.includes(u.id)).map((u: any) => [u.id, u]));
+    return (requests ?? []).map((r: any) => {
+      const u: any = userById.get(r.user_id);
+      const md = u?.user_metadata ?? {};
+      return {
+        ...r,
+        email: u?.email ?? "",
+        display_name: md.full_name || md.name || u?.email?.split("@")[0] || "",
+        provider: u?.app_metadata?.provider || "email",
+      };
+    });
+  });
+
+export const resolveUnitAccessRequest = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({
+    request_id: z.string().uuid(),
+    decision: z.enum(["approved", "rejected"]),
+    role: z.enum(["UNIT_USER", "LOGISTICS_NCO", "WORK_MANAGER"]).default("UNIT_USER"),
+    team_id: z.string().uuid().nullable().optional(),
+    review_notes: z.string().trim().max(500).optional().default(""),
+  }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const active = await assertActiveUnit(supabaseAdmin, context.userId);
+    if (!UNIT_ADMIN_ROLES.has(active.role)) throw new Error("××™×Ÿ ×”×¨×©××” × ×™×”×•×œ×™×ª ×œ×™×—×™×“×” ×”×–×•");
+    const { data: request, error: requestError } = await supabaseAdmin
+      .from("unit_access_requests")
+      .select("*")
+      .eq("id", data.request_id)
+      .eq("unit_id", active.unitId)
+      .maybeSingle();
+    if (requestError) throw new Error(requestError.message);
+    if (!request) throw new Error("×‘×§×©×ª ×”×’×™×©×” ×œ× × ×ž×¦××” ×‘×™×—×™×“×” ×”×¤×¢×™×œ×”");
+    if (data.team_id) {
+      const { data: team } = await supabaseAdmin
+        .from("teams")
+        .select("id, unit_id, active")
+        .eq("id", data.team_id)
+        .maybeSingle();
+      if (!team?.active || team.unit_id !== active.unitId) throw new Error("×”×¦×•×•×ª ×œ× ×©×™×™×š ×œ×™×—×™×“×” ×”×¤×¢×™×œ×”");
+    }
+    const now = new Date().toISOString();
+    if (data.decision === "approved") {
+      await supabaseAdmin.from("unit_memberships").upsert({
+        user_id: request.user_id,
+        unit_id: active.unitId,
+        role: data.role,
+        is_active: true,
+        updated_at: now,
+      }, { onConflict: "user_id,unit_id" });
+      if (data.team_id) {
+        await supabaseAdmin.from("team_memberships").upsert({
+          user_id: request.user_id,
+          unit_id: active.unitId,
+          team_id: data.team_id,
+          role: data.role === "UNIT_USER" ? "RASP" : "TEAM_MANAGER",
+          is_active: true,
+          updated_at: now,
+        }, { onConflict: "user_id,team_id" });
+        await supabaseAdmin.from("team_members").upsert({
+          user_id: request.user_id,
+          team_id: data.team_id,
+          role: data.role === "UNIT_USER" ? "USER" : "ADMIN",
+          is_active: true,
+          updated_at: now,
+        }, { onConflict: "user_id" });
+      }
+    }
+    const { error } = await supabaseAdmin
+      .from("unit_access_requests")
+      .update({
+        status: data.decision,
+        resolved_by: context.userId,
+        resolved_at: now,
+        review_notes: data.review_notes || null,
+        updated_at: now,
+      })
+      .eq("id", data.request_id)
+      .eq("unit_id", active.unitId);
+    if (error) throw new Error(error.message);
+    return { ok: true };
   });
 
 export const getMyActiveAdminTeam = createServerFn({ method: "GET" })
@@ -639,7 +854,7 @@ export const getTeamContextById = createServerFn({ method: "POST" })
       .select("id, name, pin, monthly_limit, contact_phone, active, unit_id, units(name)")
       .eq("id", data.team_id)
       .maybeSingle();
-    if (!row?.active || row.unit_id !== active.unitId) throw new Error("צוות לא תקין");
+    if (!row?.active || row.unit_id !== active.unitId) throw new Error("×¦×•×•×ª ×œ× ×ª×§×™×Ÿ");
     return {
       unit_id: row.unit_id,
       unit_name: (row as any).units?.name ?? "",
@@ -658,26 +873,42 @@ export const setUserTeamAdmin = createServerFn({ method: "POST" })
     team_id: z.string().uuid().nullable(),
   }).parse(input))
   .handler(async ({ data, context }) => {
-    const currentRole = await getGlobalUserRole(context.userId);
-    if (currentRole !== "OWNER") throw new Error("פעולה זו זמינה לבעלים בלבד");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const currentRole = await getGlobalUserRole(context.userId);
+    const active = currentRole === "OWNER" ? null : await assertActiveUnit(supabaseAdmin, context.userId);
+    if (active && !UNIT_ADMIN_ROLES.has(active.role)) throw new Error("פעולה זו זמינה למנהלי יחידה בלבד");
+
     if (data.team_id === null) {
-      await supabaseAdmin.from("team_members").delete().eq("user_id", data.user_id);
-      await supabaseAdmin.from("team_memberships").delete().eq("user_id", data.user_id);
+      if (active) {
+        await supabaseAdmin.from("team_memberships").delete().eq("user_id", data.user_id).eq("unit_id", active.unitId);
+        await supabaseAdmin.from("unit_memberships").upsert({
+          user_id: data.user_id,
+          unit_id: active.unitId,
+          role: "UNIT_USER",
+          is_active: true,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "user_id,unit_id" });
+      } else {
+        await supabaseAdmin.from("team_members").delete().eq("user_id", data.user_id);
+        await supabaseAdmin.from("team_memberships").delete().eq("user_id", data.user_id);
+      }
       return { ok: true };
     }
+
     const { data: team } = await supabaseAdmin
       .from("teams")
       .select("id, unit_id, active")
       .eq("id", data.team_id)
       .maybeSingle();
     if (!team?.active) throw new Error("צוות לא תקין");
+    if (active && team.unit_id !== active.unitId) throw new Error("אין הרשאה לעדכן צוות ביחידה אחרת");
+
     await supabaseAdmin
       .from("unit_memberships")
       .upsert({
         user_id: data.user_id,
         unit_id: team.unit_id,
-        role: "LOGISTICS_NCO",
+        role: "UNIT_USER",
         is_active: true,
         updated_at: new Date().toISOString(),
       }, { onConflict: "user_id,unit_id" });
@@ -687,7 +918,7 @@ export const setUserTeamAdmin = createServerFn({ method: "POST" })
         user_id: data.user_id,
         unit_id: team.unit_id,
         team_id: data.team_id,
-        role: "TEAM_MANAGER",
+        role: "RASP",
         is_active: true,
         updated_at: new Date().toISOString(),
       }, { onConflict: "user_id,team_id" });
@@ -696,13 +927,12 @@ export const setUserTeamAdmin = createServerFn({ method: "POST" })
       .upsert({
         user_id: data.user_id,
         team_id: data.team_id,
-        role: "ADMIN",
+        role: "USER",
         is_active: true,
         updated_at: new Date().toISOString(),
       }, { onConflict: "user_id" });
     return { ok: true };
   });
-
 export const claimConfiguredFirstAdmin = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {

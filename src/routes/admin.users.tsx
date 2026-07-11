@@ -10,7 +10,7 @@ import {
   updateAdminUserRole,
   searchRegisteredUsers,
 } from "@/lib/admin.functions";
-import { listActiveTeams, setUserTeamAdmin } from "@/lib/membership.functions";
+import { listActiveTeams, listUnitAccessRequests, resolveUnitAccessRequest, setUserTeamAdmin } from "@/lib/membership.functions";
 import { setAdminApprover } from "@/lib/missions.functions";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -40,10 +40,13 @@ function Admins() {
   const searchFn = useServerFn(searchRegisteredUsers);
   const teamsFn = useServerFn(listActiveTeams);
   const setTeamFn = useServerFn(setUserTeamAdmin);
+  const requestsFn = useServerFn(listUnitAccessRequests);
+  const resolveRequestFn = useServerFn(resolveUnitAccessRequest);
   const approverFn = useServerFn(setAdminApprover);
 
   const { data: admins } = useQuery({ queryKey: ["admin-users"], queryFn: () => listFn() });
   const { data: teams } = useQuery({ queryKey: ["active-teams-admin"], queryFn: () => teamsFn() });
+  const { data: accessRequests } = useQuery({ queryKey: ["unit-access-requests"], queryFn: () => requestsFn() });
   const [query, setQuery] = useState("");
   const { data: searchResults, isFetching: searching } = useQuery({
     queryKey: ["registered-users", query],
@@ -99,6 +102,29 @@ function Admins() {
       qc.invalidateQueries({ queryKey: ["calendar-admins"] });
     } catch (e: any) { toast.error(e.message); }
   }
+  async function resolveRequest(
+    requestId: string,
+    decision: "approved" | "rejected",
+    accessRole: "UNIT_USER" | "LOGISTICS_NCO" | "WORK_MANAGER",
+    teamId?: string | null,
+  ) {
+    try {
+      await resolveRequestFn({
+        data: {
+          request_id: requestId,
+          decision,
+          role: accessRole,
+          team_id: teamId ?? null,
+        },
+      });
+      toast.success(decision === "approved" ? "המשתמש אושר ליחידה" : "בקשת הגישה נדחתה");
+      qc.invalidateQueries({ queryKey: ["unit-access-requests"] });
+      qc.invalidateQueries({ queryKey: ["admin-users"] });
+      qc.invalidateQueries({ queryKey: ["registered-users"] });
+    } catch (e: any) {
+      toast.error(e.message || "שגיאה בעדכון בקשת הגישה");
+    }
+  }
 
 
   return (
@@ -113,9 +139,28 @@ function Admins() {
 
       <Tabs defaultValue="system" className="w-full">
         <TabsList>
+          <TabsTrigger value="requests">בקשות גישה</TabsTrigger>
           <TabsTrigger value="system">משתמשי מערכת</TabsTrigger>
           <TabsTrigger value="all">כל המשתמשים</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="requests" className="mt-4">
+          <Card className="divide-y">
+            {(accessRequests ?? []).map((request: any) => (
+              <AccessRequestRow
+                key={request.id}
+                request={request}
+                teams={teams ?? []}
+                onResolve={resolveRequest}
+              />
+            ))}
+            {!accessRequests?.length && (
+              <div className="p-12 text-center text-muted-foreground text-sm">
+                אין בקשות גישה פתוחות ליחידה הפעילה
+              </div>
+            )}
+          </Card>
+        </TabsContent>
 
         <TabsContent value="system" className="mt-4">
           <Card className="divide-y">
@@ -267,6 +312,85 @@ function Admins() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function AccessRequestRow({
+  request,
+  teams,
+  onResolve,
+}: {
+  request: any;
+  teams: any[];
+  onResolve: (
+    id: string,
+    decision: "approved" | "rejected",
+    role: "UNIT_USER" | "LOGISTICS_NCO" | "WORK_MANAGER",
+    teamId?: string | null,
+  ) => void;
+}) {
+  const [accessRole, setAccessRole] = useState<"UNIT_USER" | "LOGISTICS_NCO" | "WORK_MANAGER">(
+    request.requested_role ?? "UNIT_USER",
+  );
+  const [teamId, setTeamId] = useState<string>("none");
+  const displayName = request.display_name || request.email || "משתמש חדש";
+  const requestedAt = request.created_at ? new Date(request.created_at).toLocaleString("he-IL") : "";
+  const needsTeam = accessRole === "UNIT_USER";
+
+  return (
+    <div className="p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="min-w-0">
+        <div className="font-medium flex flex-wrap items-center gap-2">
+          <span>{displayName}</span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+            בקשת גישה
+          </span>
+        </div>
+        <div className="text-xs text-muted-foreground truncate" dir="ltr">{request.email}</div>
+        {request.note && (
+          <div className="text-xs text-muted-foreground mt-1">הערה: {request.note}</div>
+        )}
+        {requestedAt && (
+          <div className="text-[11px] text-muted-foreground mt-1">נשלח: {requestedAt}</div>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <Select value={accessRole} onValueChange={(v) => setAccessRole(v as any)}>
+          <SelectTrigger className="w-40 h-9 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="WORK_MANAGER">מנהל עבודה</SelectItem>
+            <SelectItem value="LOGISTICS_NCO">נגד לוגיסטיקה</SelectItem>
+            <SelectItem value="UNIT_USER">לקוח / רס״פ</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select value={teamId} onValueChange={setTeamId}>
+          <SelectTrigger className="w-40 h-9 text-xs"><SelectValue placeholder="צוות" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">ללא צוות</SelectItem>
+            {teams.map((team: any) => (
+              <SelectItem key={team.id} value={team.id}>{team.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Button
+          size="sm"
+          onClick={() => onResolve(request.id, "approved", accessRole, teamId === "none" ? null : teamId)}
+          disabled={needsTeam && teamId === "none"}
+        >
+          אשר
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => onResolve(request.id, "rejected", accessRole, null)}
+        >
+          דחה
+        </Button>
+      </div>
     </div>
   );
 }
