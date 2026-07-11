@@ -498,13 +498,18 @@ export const deleteAdminUser = createServerFn({ method: "POST" })
 
     let authDeleted = false;
     let deleteError: string | null = null;
+    let tombstoneEmail: string | null = null;
     const { error: hardDeleteError } = await supabaseAdmin.auth.admin.deleteUser(data.user_id);
     if (hardDeleteError) {
       deleteError = hardDeleteError.message;
+      tombstoneEmail = `deleted+${data.user_id}@deleted.logistikam.local`;
       const { error: banError } = await supabaseAdmin.auth.admin.updateUserById(data.user_id, {
+        email: tombstoneEmail,
+        email_confirm: true,
         ban_duration: "876000h",
         user_metadata: {
           ...((targetUser?.user?.user_metadata as any) ?? {}),
+          original_email: targetUser?.user?.email ?? null,
           deleted_at: deletedAt,
           deleted_by: context.userId,
         },
@@ -525,6 +530,7 @@ export const deleteAdminUser = createServerFn({ method: "POST" })
         auth_deleted: authDeleted,
         delete_error: deleteError,
         email: targetUser?.user?.email ?? null,
+        tombstone_email: tombstoneEmail,
       },
     });
     return { ok: true, auth_deleted: authDeleted, deactivated: !authDeleted };
