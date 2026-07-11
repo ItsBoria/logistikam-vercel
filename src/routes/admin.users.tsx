@@ -218,17 +218,6 @@ function Admins() {
                     {!isMe ? (
                       <Button variant="ghost" size="icon" onClick={() => remove(a.user_id)}><Trash2 className="w-4 h-4 text-destructive" /></Button>
                     ) : <span className="text-xs text-muted-foreground">(אתה)</span>}
-                    {!isMe && u.currentRole !== "OWNER" && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => remove(u.id)}
-                        title="מחיקת משתמש"
-                        aria-label="מחיקת משתמש"
-                      >
-                        <Trash2 className="w-4 h-4 text-destructive" />
-                      </Button>
-                    )}
                   </div>
                 </div>
               );
@@ -296,6 +285,17 @@ function Admins() {
                         </SelectContent>
                       </Select>
                     ) : <span className="text-xs text-muted-foreground">(אתה)</span>}
+                    {!isMe && u.currentRole !== "OWNER" && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => remove(u.id)}
+                        title="מחיקת משתמש"
+                        aria-label="מחיקת משתמש"
+                      >
+                        <Trash2 className="w-4 h-4 text-destructive" />
+                      </Button>
+                    )}
                   </div>
                 </div>
               );
