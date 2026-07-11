@@ -351,6 +351,42 @@ export const getMyTeamContext = createServerFn({ method: "GET" })
     };
   });
 
+export const getMyLandingContext = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const role = await getGlobalUserRole(context.userId);
+    const hasAccess = role !== "USER";
+    const isAdmin = role !== "USER";
+    const isStaff = false;
+
+    let team: TeamContext = null;
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const ctx = await getActiveContext(supabaseAdmin, context.userId);
+    if (ctx?.active_unit_id && ctx.active_team_id) {
+      const allowed = await canAccessTeamInUnit(supabaseAdmin, context.userId, ctx.active_unit_id, ctx.active_team_id);
+      if (allowed) {
+        const { data: row } = await supabaseAdmin
+          .from("teams")
+          .select("id, name, pin, monthly_limit, contact_phone, active, unit_id, units(name)")
+          .eq("id", ctx.active_team_id)
+          .maybeSingle();
+        if (row?.active && row.unit_id === ctx.active_unit_id) {
+          team = {
+            unit_id: row.unit_id,
+            unit_name: (row as any).units?.name ?? "",
+            team_id: row.id,
+            team_name: row.name,
+            pin: row.pin,
+            monthly_limit: Number(row.monthly_limit),
+            contact_phone: row.contact_phone,
+          };
+        }
+      }
+    }
+
+    return { role, hasAccess, isAdmin, isStaff, team };
+  });
+
 export const getMyActiveAdminTeam = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<ActiveAdminTeam> => {

@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { assertMinRole } from "./authz.server";
+import { assertFunctionMinRole as assertMinRole } from "./authz.functions";
 import { resolveActiveAdminUnitId } from "./membership.functions";
 
 export const getBudgetManagement = createServerFn({ method: "GET" })

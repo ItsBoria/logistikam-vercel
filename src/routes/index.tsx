@@ -4,9 +4,8 @@ import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useSupabaseSession } from "@/hooks/use-supabase-session";
-import { useAdminRoles } from "@/hooks/use-admin-roles";
 import {
-  getMyTeamContext,
+  getMyLandingContext,
   claimConfiguredFirstAdmin,
 } from "@/lib/membership.functions";
 import { setTeamSession, setAdminActing } from "@/lib/team-session";
@@ -26,16 +25,15 @@ export const Route = createFileRoute("/")({
 function Home() {
   const navigate = useNavigate();
   const { session, loading: sessionLoading } = useSupabaseSession();
-  const { data: roles, loading: rolesLoading } = useAdminRoles();
-  const teamCtxFn = useServerFn(getMyTeamContext);
+  const landingFn = useServerFn(getMyLandingContext);
   const claimFirstAdminFn = useServerFn(claimConfiguredFirstAdmin);
-  const teamQ = useQuery({
+  const landingQ = useQuery({
     enabled: !!session,
-    queryKey: ["my-team-context", session?.user.id],
-    queryFn: () => teamCtxFn(),
+    queryKey: ["my-landing-context", session?.user.id],
+    queryFn: () => landingFn(),
   });
   const firstAdminQ = useQuery({
-    enabled: !!session && !rolesLoading && !!roles && !roles.hasAccess,
+    enabled: !!session && !landingQ.isLoading && !!landingQ.data && !landingQ.data.hasAccess,
     queryKey: ["claim-configured-first-admin", session?.user.id],
     queryFn: () => claimFirstAdminFn(),
     retry: false,
@@ -43,24 +41,23 @@ function Home() {
   });
 
   useEffect(() => {
-    if (!session || rolesLoading || !roles) return;
-    if (!roles.hasAccess && firstAdminQ.isLoading) return;
+    if (!session || landingQ.isLoading || !landingQ.data) return;
+    if (!landingQ.data.hasAccess && firstAdminQ.isLoading) return;
     if (firstAdminQ.data?.claimed) {
       window.location.reload();
       return;
     }
-    if (roles.isAdmin) {
+    if (landingQ.data.isAdmin) {
       setAdminActing(false);
       navigate({ to: "/admin", replace: true });
       return;
     }
-    if (roles.isStaff) {
+    if (landingQ.data.isStaff) {
       navigate({ to: "/admin/orders", replace: true });
       return;
     }
-    if (teamQ.isLoading) return;
-    if (teamQ.data) {
-      setTeamSession(teamQ.data);
+    if (landingQ.data.team) {
+      setTeamSession(landingQ.data.team);
       setAdminActing(false);
       navigate({ to: "/shop/dashboard" as any, replace: true });
     } else {
@@ -68,18 +65,16 @@ function Home() {
     }
   }, [
     session,
-    rolesLoading,
-    roles,
+    landingQ.isLoading,
+    landingQ.data,
     firstAdminQ.isLoading,
     firstAdminQ.data,
-    teamQ.isLoading,
-    teamQ.data,
     navigate,
   ]);
 
   if (
     sessionLoading ||
-    (session && (rolesLoading || teamQ.isLoading || (!roles?.hasAccess && firstAdminQ.isLoading)))
+    (session && (landingQ.isLoading || (!landingQ.data?.hasAccess && firstAdminQ.isLoading)))
   ) {
     return (
       <div className="min-h-screen flex items-center justify-center">

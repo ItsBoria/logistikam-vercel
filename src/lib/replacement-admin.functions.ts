@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
-import { assertMinRole } from "./authz.server";
+import { assertFunctionMinRole as assertMinRole } from "./authz.functions";
 
 const BUCKET = "product-images";
 const SIGN_TTL = 60 * 60 * 24 * 7;

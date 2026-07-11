@@ -1,6 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { assertMinRole, assertOwner as assertSystemOwner, getUserRole } from "./authz.server";
+import {
+  assertFunctionMinRole as assertMinRole,
+  assertFunctionOwner as assertSystemOwner,
+  getFunctionUserRole as getUserRole,
+} from "./authz.functions";
 import {
   WORK_DAYS,
   formatWorkDate,

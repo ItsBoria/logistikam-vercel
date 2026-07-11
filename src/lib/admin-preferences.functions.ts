@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { assertMinRole } from "./authz.server";
+import { assertFunctionMinRole as assertMinRole } from "./authz.functions";
 
 export const DASHBOARD_WIDGETS = ["kpis", "attention", "budgets", "stock", "recent_orders"] as const;
 export type DashboardWidget = (typeof DASHBOARD_WIDGETS)[number];
