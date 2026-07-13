@@ -44,6 +44,11 @@ function mapGlobalRoleToUnitRole(role: RoleCode) {
   return "UNIT_USER";
 }
 
+function legacyGlobalAdminUnitRole(role: RoleCode) {
+  if (role === "WORK_MANAGER" || role === "ADMIN") return mapGlobalRoleToUnitRole(role);
+  return null;
+}
+
 async function getGlobalUserRole(userId: string): Promise<RoleCode> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data, error } = await supabaseAdmin
@@ -85,6 +90,35 @@ async function getUnitMembership(supabaseAdmin: any, userId: string, unitId: str
     .eq("is_active", true)
     .maybeSingle();
   return data as { unit_id: string; role: string; is_active: boolean } | null;
+}
+
+async function getOriginalUnit(supabaseAdmin: any) {
+  const { data } = await supabaseAdmin
+    .from("units")
+    .select(SELECTABLE_UNIT_FILTER)
+    .eq("code", "ORIGINAL")
+    .maybeSingle();
+  return isSelectableUnit(data) ? data : null;
+}
+
+async function ensureLegacyOriginalUnitMembership(supabaseAdmin: any, userId: string, globalRole: RoleCode) {
+  const unitRole = legacyGlobalAdminUnitRole(globalRole);
+  if (!unitRole) return null;
+
+  const originalUnit = await getOriginalUnit(supabaseAdmin);
+  if (!originalUnit?.id) return null;
+
+  await supabaseAdmin
+    .from("unit_memberships")
+    .upsert({
+      user_id: userId,
+      unit_id: originalUnit.id,
+      role: unitRole,
+      is_active: true,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "user_id,unit_id" });
+
+  return { unit: originalUnit, role: unitRole };
 }
 
 async function getHighestUnitAdminRole(supabaseAdmin: any, userId: string) {
@@ -167,7 +201,21 @@ async function assertCanAccessUnit(supabaseAdmin: any, userId: string, unitId: s
   const globalRole = await getGlobalUserRole(userId);
   if (globalRole === "OWNER") return { role: "PLATFORM_OWNER", isPlatformOwner: true };
   const membership = await getUnitMembership(supabaseAdmin, userId, unitId);
-  if (!membership) throw new Error("××™×Ÿ ×œ×š ×”×¨×©××” ×œ×™×—×™×“×” ×”×–×•");
+  if (!membership) {
+    const unitRole = legacyGlobalAdminUnitRole(globalRole);
+    if (unitRole) {
+      const { data: unit } = await supabaseAdmin
+        .from("units")
+        .select(SELECTABLE_UNIT_FILTER)
+        .eq("id", unitId)
+        .maybeSingle();
+      if (isSelectableUnit(unit) && unit.code === "ORIGINAL") {
+        await ensureLegacyOriginalUnitMembership(supabaseAdmin, userId, globalRole);
+        return { role: unitRole, isPlatformOwner: false };
+      }
+    }
+    throw new Error("××™×Ÿ ×œ×š ×”×¨×©××” ×œ×™×—×™×“×” ×”×–×•");
+  }
   return { role: membership.role, isPlatformOwner: false };
 }
 
@@ -191,19 +239,37 @@ async function assertActiveUnit(supabaseAdmin: any, userId: string) {
 
     const first = (memberships ?? []).find((row: any) => isSelectableUnit(row.units));
     if (!first?.unit_id) {
+      const legacyOriginal = await ensureLegacyOriginalUnitMembership(supabaseAdmin, userId, globalRole);
+      if (legacyOriginal?.unit?.id) {
+        activeUnitId = legacyOriginal.unit.id;
+        activeTeamId = null;
+        await supabaseAdmin
+          .from("user_active_contexts")
+          .upsert({
+            user_id: userId,
+            active_unit_id: activeUnitId,
+            active_team_id: null,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: "user_id" });
+      }
+    }
+
+    if (!activeUnitId && !first?.unit_id) {
       throw new Error("×¦×¨×™×š ×œ×‘×—×•×¨ ×™×—×™×“×” ×¤×¢×™×œ×” ×œ×¤× ×™ ×”×ž×©×š ×”×¢×‘×•×“×”");
     }
 
-    activeUnitId = first.unit_id;
-    activeTeamId = null;
-    await supabaseAdmin
-      .from("user_active_contexts")
-      .upsert({
-        user_id: userId,
-        active_unit_id: activeUnitId,
-        active_team_id: null,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: "user_id" });
+    if (!activeUnitId) {
+      activeUnitId = first.unit_id;
+      activeTeamId = null;
+      await supabaseAdmin
+        .from("user_active_contexts")
+        .upsert({
+          user_id: userId,
+          active_unit_id: activeUnitId,
+          active_team_id: null,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "user_id" });
+    }
   }
 
   const access = await assertCanAccessUnit(supabaseAdmin, userId, activeUnitId!);
@@ -302,6 +368,11 @@ export const listActiveUnits = createServerFn({ method: "GET" })
       if (!unitsById.has(unit.id)) unitsById.set(unit.id, mapUnitForClient(unit, mapGlobalRoleToUnitRole(globalRole) || row.role || "UNIT_USER", false));
     }
 
+    const legacyOriginal = await ensureLegacyOriginalUnitMembership(supabaseAdmin, context.userId, globalRole);
+    if (legacyOriginal?.unit?.id && !unitsById.has(legacyOriginal.unit.id)) {
+      unitsById.set(legacyOriginal.unit.id, mapUnitForClient(legacyOriginal.unit, legacyOriginal.role, false));
+    }
+
     return Array.from(unitsById.values()).sort((a, b) => a.unit_name.localeCompare(b.unit_name, "he"));
   });
 
@@ -309,13 +380,19 @@ export const getMyActiveUnit = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<UnitContext> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const globalRole = await getGlobalUserRole(context.userId);
     const ctx = await getActiveContext(supabaseAdmin, context.userId);
-    if (!ctx?.active_unit_id) return null;
-    const access = await assertCanAccessUnit(supabaseAdmin, context.userId, ctx.active_unit_id);
+    let activeUnitId = ctx?.active_unit_id ?? null;
+    if (!activeUnitId && globalRole !== "OWNER") {
+      const active = await assertActiveUnit(supabaseAdmin, context.userId);
+      activeUnitId = active.unitId;
+    }
+    if (!activeUnitId) return null;
+    const access = await assertCanAccessUnit(supabaseAdmin, context.userId, activeUnitId);
     const { data: unit } = await supabaseAdmin
       .from("units")
       .select("id, name, code, logo_url, accent_color, active")
-      .eq("id", ctx.active_unit_id)
+      .eq("id", activeUnitId)
       .maybeSingle();
     if (!unit?.active) return null;
     return {
